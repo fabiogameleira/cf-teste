@@ -1,0 +1,240 @@
+<?php
+
+function cf_assembleia_form_alter(&$form, &$form_state, $form_id) {
+
+    // TRATAR ASSEMBLEIA
+	if ($form_id == 'assembleia_node_form') { 
+		  $form['#validate'][] = 'cf_assembleia_form_validate_assembleia'; 
+	}
+}
+
+// TRATAR ASSEMBLEIA
+function cf_assembleia_form_validate_assembleia($form, &$form_state) {
+
+   $assembleia = $form['title']['#default_value'];
+   $data_assembleia = date( 'd/m/Y H:i:s', strtotime( $form['field_data']['und'][0]['#default_value']['value'] ) );
+   $hoje = date('d/m/Y H:i:s'); 
+   
+   if ($data_assembleia < $hoje) {
+		$queryregistrodepresenca = new EntityFieldQuery();
+	    $result = $queryregistrodepresenca->entityCondition('entity_type', 'node')
+	    ->entityCondition('bundle', 'participacao_assembleia')
+		->propertyCondition('status', NODE_PUBLISHED)
+	    ->fieldCondition('field_assembleia', 'value', $assembleia, '=')
+	    ->fieldCondition('field_participa', 'value', 1 , '=')
+	    ->execute();
+
+	    // Se possuir registro de controle de presença não permite troca de dados,
+		// Somente se passar registroso controle de presença para não.
+		if (!empty($result)) {
+		   $msg = 'Assembleia com data e hora menor que a data e hora atual '. $hoje;
+		   $msg = $msg . ' e com registro de presença confirmado.<br>';
+		   $msg = $msg . 'Para excluir a assembleia ou alterar os dados, primeiro ';
+	       $msg = $msg . 'atribua todos os <a href="/controledepresencaassembleia/'.$assembleia.'" title="Controle de presença" >controle de presença</a> para não.';  
+		   form_set_error('field_data', $msg);  
+		}
+   }
+}
+
+function cf_assembleia_node_postupdate($node) {
+	
+	// TRATAR ASSEMBLEIA
+  	if ($node->type =='assembleia') {
+		
+	  $assembleia = $node->title ;	
+	    
+	  $data_assembleia = new DateTime(date( 'm/d/Y', strtotime( $node->field_data['und'][0]['value'] ) ));
+	  $hoje = new DateTime('now'); 
+	  
+	  $controle_presenca_original = $node->original->field_controle_presenca['und'][0]['value'];
+	  $controle_presenca_atual = $node->field_controle_presenca['und'][0]['value'];
+	  
+	  $lista_presenca_original = $node->original->field_lista_de_presenca['und'][0]['value'];
+	  $lista_presenca_atual = $node->field_lista_de_presenca['und'][0]['value'];
+	  /* 
+	  $valor = 'Assembleia: '. $assembleia  ;
+	  $valor = $valor . 'Data da assembleia:' . $data_assembleia->format('d/m/Y H:i:s');
+	  $valor = $valor . '|Data hoje:' . $hoje->format('d/m/Y H:i:s');
+	  $valor = $valor . '|Controle de presença original:' .$controle_presenca_original;
+	  $valor = $valor . '|Controle de presença atual:' .$controle_presenca_atual; 
+	  $valor = $valor . '|Lista de presença original:' .$lista_presenca_original;
+	  $valor = $valor . '|lista de presença atual:' .$lista_presenca_atual; 
+      file_put_contents('drupal--debug-valor.txt', print_r($valor, true)); 
+	  */
+	  // TRATA TROCA DO CONTROLE DE PRESENCA
+	  /*
+	    if ($controle_presenca_original != $controle_presenca_atual ) {
+		   
+		  switch ($controle_presenca_atual) {
+			  
+			  case 1: // Sim
+						//if ($data_assembleia >= $hoje) {
+						//	cf_assembleia_apaga_lista_de_presenca($assembleia);	
+						//	cf_assembleia_cria_lista_de_presenca ($node);							
+						//}
+				break;
+			  case 0:		
+						//if ($data_assembleia >= $hoje) {
+						//	cf_assembleia_apaga_lista_de_presenca($assembleia);			
+						//}
+				break;
+			  default:	
+				break;
+			
+			}
+		} */
+		//else {
+			
+		// TRATA TROCA DO LISTA DE PRESENCA	 
+		if ($lista_presenca_original != $lista_presenca_atual ) {
+		   
+			switch ($lista_presenca_atual) {
+			  case 1: // Sim
+						//if ($data_assembleia >= $hoje) {
+							cf_assembleia_apaga_lista_de_presenca($assembleia);
+							cf_assembleia_cria_lista_de_presenca ($node);	
+                        //}						
+				break;
+			  case 0:
+						if ($data_assembleia >= $hoje) {
+							cf_assembleia_apaga_lista_de_presenca($assembleia);			
+						}
+				break;
+			  default:	
+
+				break;
+			
+			}
+		}
+		//}
+
+	}
+}
+
+/* EXCLUI LISTA DE PRESENÇA */
+// TRATAR ASSEMBLEIA
+function cf_assembleia_apaga_lista_de_presenca ($assembleia) {
+	
+	$queryparticipacao = new EntityFieldQuery();
+	$result = $queryparticipacao->entityCondition('entity_type', 'node')
+	->entityCondition('bundle', 'participacao_assembleia')
+	->propertyCondition('status', NODE_PUBLISHED)
+	->fieldCondition('field_assembleia', 'value', $assembleia, '=')
+	->execute();
+    
+	if (!empty($result)){
+		$participacoes = node_load_multiple(array_keys($result['node']));
+		foreach ($participacoes as $participacao) { 
+			node_delete($participacao->nid);
+		}	
+	}
+}
+
+/* EXCLUI LISTA DE PRESENÇA SE ASSEMBLEIA FOI EXCLUÍDA */
+// TRATAR ASSEMBLEIA
+function cf_assembleia_node_postdelete($node) {
+
+  	if ($node->type =='assembleia') {
+		$assembleia = $node->title ;
+	    cf_assembleia_apaga_lista_de_presenca ($assembleia);
+	}
+}
+
+/* CRIAR LISTA DE PRESENÇA */
+// TRATAR ASSEMBLEIA
+function cf_assembleia_cria_lista_de_presenca ($node) {
+	
+		global $user;
+		
+		 //Guarda código da assembleia;
+
+		 $assembleia = $node->title;
+		 
+		 // Criar array de situação do filiado para o qual a assembleia foi definida
+		 // Ativo ou Pensionista ou Aposentado
+		 
+		 $qualsituacao = array();
+		 //$pensionista = $node->field_pensionista[0]['value'];
+		 //$aposentado = $node->field_aposentado['und'][0]['value'];
+		 
+		 //If ($ativo == 1 ) {
+			 //$termoativo = reset(taxonomy_get_term_by_name('Ativo'));
+			 $situacao = 'Filiado';
+			 $situacao_fim = taxonomy_get_term_by_name($situacao);
+			 $termoativo = reset($situacao_fim);
+			 $qualsituacao[] = $termoativo->tid ;
+		 //}
+
+		 //file_put_contents('drupal--debug-situacao.txt', print_r($qualsituacao, true));
+		 
+		 // obtem filiados para gravar a participação
+		 $queryfiliado = new EntityFieldQuery();
+		 $result = $queryfiliado->entityCondition('entity_type', 'node')
+			->entityCondition('bundle', 'filiado')
+			->propertyCondition('status', NODE_PUBLISHED)
+			->fieldCondition('field_situacaofiliado', 'tid', $qualsituacao)
+			->execute();
+			
+		 if (!empty($result)) {
+			$filiados = node_load_multiple(array_keys($result['node']));
+			// Cria lista de presença com base em Filiados existentes
+			 foreach ($filiados as $filiado) {
+			 
+				// Verifica se a conta de usuário do filiado está pendente
+				// Se estiver, o filiado não entra na lista de presença
+
+				$usuario = user_load($filiado->uid);	
+				$qtdroles = sizeof($usuario->roles);
+				$papeldousuario = array_search('pendente',$usuario->roles );
+				
+				// Se o papel do usuário que criou o filiado não for pendente
+				// Grava o filiado na lista de participação
+				if (!$papeldousuario) {	 
+					$cpf = $filiado->field_cpf['und'][0]['value'];
+					$id  = $filiado->nid;
+					$titulo = $assembleia .'-'. $id;
+					$filiado->field_idcpf['und'][0]['target_id'] = $id;
+					$refcpf = $filiado->field_idcpf['und'][0]['target_id'];
+					
+					$filiado->field_idassembleia['und'][0]['target_id'] = $node->nid;
+					$refassembleia = $filiado->field_idassembleia['und'][0]['target_id'];
+						
+					// Use the Entity API to create a new object
+					$values = array(
+					  'type' => 'participacao_assembleia',
+					  'uid' => $user->uid,
+					  'status' => 1,
+					  'promote' => 0,
+					);
+					
+					$entity = entity_create('node', $values);
+					
+					// Then create an entity_metadata_wrapper around the new entity.
+					$wrapper = entity_metadata_wrapper('node', $entity);
+
+					// Now assign values through the wrapper.
+					$wrapper->title->set($titulo);
+
+					$wrapper->field_idcpf->set($refcpf);
+					$wrapper->field_cpf->set($cpf);
+					$wrapper->field_idassembleia->set($refassembleia);
+					$wrapper->field_assembleia->set($assembleia);
+					
+					// Finally save the node.
+					$wrapper->save();
+					
+				}
+			  }
+		 }
+}
+
+function cf_assembleia_node_postinsert($node) {
+	//watchdog('hook_post_action_test', "The inserted node {$node->type} id is {$node->nid} from " . __FUNCTION__);
+   //file_put_contents('drupal--debug.txt', print_r($node, true));
+   
+    // TRATAR ASSEMBLEIA
+    if ($node->type =='assembleia') {
+		cf_assembleia_cria_lista_de_presenca ($node);
+    }
+	
+}

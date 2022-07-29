@@ -1,0 +1,4 @@
+name = cf geral
+description = Funções genéricas utilizados por outros módulos.
+core = 7.x
+package = Other

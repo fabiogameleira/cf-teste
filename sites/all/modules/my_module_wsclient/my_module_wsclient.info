@@ -1,0 +1,4 @@
+name = My Module Ws Client
+description = biblioteca de hooks para tratamento SOAP.
+core = 7.x
+package = Other

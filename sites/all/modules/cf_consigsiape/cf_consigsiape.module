@@ -1,0 +1,935 @@
+<?php
+
+/* 
+A View gerar_arquivo_consigsiape inicia sem exibir o mês/Ano
+mostrando todos os comandos do consigsiape que ainda não foram
+gravados no arquivo.
+Após informar o mês e ano, o processamento do pre_render irá chamar
+a função cf_consigsiape_grava_consigsiape e gravará o arquivo para 
+ser feito download e encaminhar ao SIAPE.
+
+*/
+function cf_consigsiape_views_pre_render(&$view) {
+	  
+	  if ($view->name == 'gerar_arquivo_consigsiape') {
+	  	
+		if (!empty($view->exposed_data['field_ano_mes_value']['value'])) {
+
+		   $ano  = substr($view->exposed_data['field_ano_mes_value']['value'],0,4);
+		   $mes  = substr($view->exposed_data['field_ano_mes_value']['value'],5,2);
+		   $data_hora = date("Y/m/d H:i:s");
+		   $data_hora_arq = str_replace('/','',$data_hora);
+		   $data_hora_arq = str_replace(':','',$data_hora_arq);
+		   $data_hora_arq = str_replace(' ','',$data_hora_arq);
+		   $arquivo_nome = 'consigsiape-'.$data_hora_arq.'.txt';
+		   $arquivo = 'private://consigsiape/'.$arquivo_nome; 
+	   
+		    $msg = cf_consigsiape_grava_consigsiape($ano, $mes, $data_hora,$arquivo);
+			
+			if ($msg == 'Arquivo gerado') {
+				$url = 'system/files/consigsiape/'.$arquivo_nome;
+				$msg = 'Arquivo gerado: <a class="consigsiape" title="Clique com o botão direito do mouse e depois em Salvar link como... para baixar." href="/'.$url.'">'.$arquivo_nome.'</a>';
+				drupal_set_message($msg);
+			} 
+			else {
+				if ($msg == 'Falha ao criar o arquivo') { 
+					$msg = 'Falha ao criar o arquivo CONSIGSIAPE';
+					drupal_set_message($msg);
+				}
+			}
+		}
+  }
+}
+
+function cf_consigsiape_form_alter(&$form, &$form_state, $form_id) {
+	
+	if ($form_id == 'consigsiape_node_form') { 
+		 $form['#validate'][] = 'cf_consigsiape_form_validate_consigsiape'; 
+	}
+}
+
+function cf_consigsiape_exclui_comandonaoenviado_consigsiape($matricula_servidor,$comando,$mesano,$envio) {
+	
+	$comandonaoenviado = FALSE;
+	$querycomando = new EntityFieldQuery();	
+		$resultcomandos = $querycomando->entityCondition('entity_type', 'node')
+		->entityCondition('bundle', 'consigsiape')
+		->propertyCondition('status', NODE_PUBLISHED)
+		->fieldCondition('field_matricula_serv_inst', 'value', $matricula_servidor, '=')
+		->fieldCondition('field_comando', 'value', $comando, '=')
+		//->fieldCondition('field_status_consigsiape', 'value', $envio, 0 )
+		->execute();
+		//dpm($resultcomandos);
+		if (!empty($resultcomandos)){
+			$comandos_existe = node_load_multiple(array_keys($resultcomandos['node']));
+			foreach ($comandos_existe as $comando_existe) { 
+			  //file_put_contents('drupal--comando_exclusao_existe.txt', print_r($comandos_existe, true));
+			  if (substr($comando_existe->field_ano_mes['und'][0]['value'],0,7) == substr($mesano,0,7)) {
+				  //file_put_contents('drupal--comando_existe-no-mes.txt', print_r($comando_existe, true));
+				  if ($comando_existe->field_status_consigsiape['und'][0]['value'] == 0) {
+				      //file_put_contents('drupal--comando_existe-no-mes-stuacao-nao-enviado.txt', print_r($comando_existe, true));
+					  $comandonaoenviado = TRUE;
+					  node_delete($comando_existe->nid);
+				      //file_put_contents('drupal--comandonaoenviado-excluido.txt', print_r($comandonaoenviado, true));
+				      //break;
+				  }
+			   }	  
+			}
+		}		
+	return ($comandonaoenviado);
+}
+
+function cf_consigsiape_ver_comandoexistente_consigsiape($matricula_servidor,$comando,$mesano,$envio) {
+	
+	$comandoexistente = false;
+	$querycomando = new EntityFieldQuery();	
+		$resultcomandos = $querycomando->entityCondition('entity_type', 'node')
+		->entityCondition('bundle', 'consigsiape')
+		->propertyCondition('status', NODE_PUBLISHED)
+		->fieldCondition('field_matricula_serv_inst', 'value', $matricula_servidor, '=')
+		->fieldCondition('field_comando', 'value', $comando, '=')
+		->fieldCondition('field_status_consigsiape', 'value', $envio, '=')
+		->execute();
+        
+		if (!empty($resultcomandos)){
+			$comandos_existe = node_load_multiple(array_keys($resultcomandos['node']));
+			foreach ($comandos_existe as $comando_existe) { 
+	           //if (substr($comando_existe->field_ano_mes['und'][0]['value'],0,7) == substr($mesano,0,7)) {
+			      // achou comando
+				  if ($comando_existe->field_status_consigsiape['und'][0]['value'] == 0) {
+					  $comandoexistente = true;
+					   $texto = 'Comando EXISTE para o siape:'.$matricula_servidor.'/ comando:'.$comando. '/ gravado no arquivo:' .$comando_existe->field_status_consigsiape['und'][0]['value'];
+			           //file_put_contents('drupal--comando-existe.txt', $comando_existe, true);
+	
+					  // Exclui comando;
+					  //node_delete($comando_existe->nid);
+				  }		
+			   //}	  
+			}
+		} 	
+	return ($comandoexistente);
+}
+function cf_consigsiape_exclui_comandoexistente_consigsiape($matricula_servidor,$comando,$mesano, $envio) {
+	
+	$exclui = false;
+	$querycomando = new EntityFieldQuery();	
+		$resultcomandos = $querycomando->entityCondition('entity_type', 'node')
+		->entityCondition('bundle', 'consigsiape')
+		->propertyCondition('status', NODE_PUBLISHED)
+		->fieldCondition('field_matricula_serv_inst', 'value', $matricula_servidor, '=')
+		->fieldCondition('field_comando', 'value', $comando, '=')
+		->execute();
+		if (!empty($resultcomandos)){
+			$comandos_existe = node_load_multiple(array_keys($resultcomandos['node']));
+			foreach ($comandos_existe as $comando_existe) { 
+	           if (substr($comando_existe->field_ano_mes['und'][0]['value'],0,7) == substr($mesano,0,7)) {
+					if ($comando_existe->field_status_consigsiape['und'][0]['value'] == 0) {
+					  $exclui = true;
+					  // Exclui comando;
+					  node_delete($comando_existe->nid);				  
+					  break;
+					}	
+			   }	  
+			}
+		}		
+	return ($exclui);
+}
+
+function cf_consigsiape_ver_excluida_consigsiape($matricula_servidor) {
+	
+	$continua = true;
+    $queryexcluidas = new EntityFieldQuery();	
+	$resultexcluidas = $queryexcluidas->entityCondition('entity_type', 'node')
+	->entityCondition('bundle', 'rubricas_excluidas')
+	->propertyCondition('status', NODE_PUBLISHED)
+	->fieldCondition('field_exc_matricula_serv_inst', 'value', $matricula_servidor, '=')
+	->execute();
+
+	if (!empty($resultexcluidas)){	
+	    $excluidas = node_load_multiple(array_keys($resultexcluidas['node']));
+		foreach ($excluidas as $excluida) { 			
+			$continua = false;
+		}
+	}
+    return($continua);
+}
+
+function cf_consigsiape_form_validate_consigsiape($form, &$form_state) {
+	
+	//- Siape não consta da base do CF; ok
+	//- Filiado possui situaçao sindical = desfiliado; ok
+	//- Se comando já inserido: Siape igual, comando igual, mes ano igual ok
+	//- Se a conta estiver como filiação pendente.
+	//- Se Siape consta do rubricas excluídas; ok
+
+		$matricula_servidor = $form['field_matricula_serv_inst']['und'][0]['value']['#value'];
+		//$matricula_beneficiario = $form['field_matricula_pen_ser']['und'][0]['value']['#value'];
+		$comando = $form['field_comando']['und']['#value'] ;
+		$mesano = $form['field_ano_mes']['und'][0]['#default_value']['value'] ;
+		$txt_comando = $form['field_comando']['und']['#options'][$comando];
+		$msg = '';
+		
+		if (isset($form['field_matricula_pen_ser']['und'][0]['value']['#value'])) {
+			$matricula_beneficiario = trim( $form['field_matricula_pen_ser']['und'][0]['value']['#value']);
+		} else {
+			$matricula_beneficiario = ' ';
+		    $matricula_beneficiario = str_pad($matricula_beneficiario , 8 , ' '); 
+		}
+		// carrega $siape com a matricula do beneficiário ou do servidor/instituidor
+		if (empty(trim($matricula_beneficiario))) {
+			$siape = $matricula_servidor ;
+			$tipo = 'servidor';
+		} else {
+			$siape = $matricula_beneficiario;
+			$tipo = 'pensionista';
+		}
+
+		//- Se comando já inserido: Siape igual, comando igual, mes ano igual
+		$envio = 0 ; // Não encaminhado - Gravado no arquivo
+		$comandoexistente = cf_consigsiape_ver_comandoexistente_consigsiape($siape,$comando,$mesano,$envio);
+		//$novocomando = 'siape:'.$siape .'|Comando:'.$comando.'|Mesano:'.$mesano.'|Repetido:'.$comandonaorepetido;
+		//file_put_contents('drupal--comandovalida.txt', print_r($novocomando, true));
+		
+		if (!$comandoexistente) {	    
+			//- Verifica se Siape consta da base do CF;
+			$queryfiliado = new EntityFieldQuery();	
+			$result = $queryfiliado->entityCondition('entity_type', 'node')
+					->entityCondition('bundle', 'filiado')
+					->propertyCondition('status', NODE_PUBLISHED)
+					->fieldCondition('field_siape', 'value', $siape, '=')
+					->execute();
+
+			if (!empty($result)){
+				// O filiado existe
+				$filiados = node_load_multiple(array_keys($result['node']));
+				
+				foreach ($filiados as $filiado) { 		
+					$situacao_sindical = taxonomy_term_load($filiado->field_situacaofiliado['und'][0]['tid']);
+					$situacao_sindical = $situacao_sindical->name;					
+					$nome = $filiado->field_nome['und'][0]['value'];
+
+				    //- Filiado possui situaçao sindical = desfiliado;
+					if (strtolower($situacao_sindical) == 'desfiliado') {
+					   //$msg = 'Atenção! Foi gerado um comando de '.$txt_comando. ' para ' .$nome. ', SIAPE '. $siape.' que a possui situação sindical <b>desfiliado</b> na base do CF';	
+					   //form_set_error($siape, $msg ); //
+					   //drupal_set_message($msg);
+					//} 
+					//else {
+					   // verificar se está em rubricas excluídas
+					    $continua = cf_consigsiape_ver_excluida_consigsiape($siape);
+						if (!$continua ){
+							//- Se Siape consta do rubricas excluídas
+						   	$msg = 'Erro! '.$txt_comando. ' não permitida. A matrícula SIAPE <b>'. $siape .' do '. $tipo.' ' .$nome.'</b> consta em Rubricas excluídas.';
+							form_set_error($siape, $msg );
+						}
+					}
+				}
+			}
+			else {		
+				//- Siape não consta da base do CF; ok			
+				$msg = 'Erro! Comando de '.$txt_comando. ' não permitido. A matrícula SIAPE <b>'. $siape .'</b> não consta da base do CF - Controle de Filiados.';
+				form_set_error($siape, $msg );
+			}
+        } else {
+			//- Se comando já inserido: Siape igual, comando igual, mes ano igual ok
+			$ano = substr($mesano,0,4);
+			$mes = substr($mesano,5,2);
+			$msg = 'Erro! '.$txt_comando. ' não permitida. Este comando já consta como inserido para o SIAPE <b>'. $siape .'</b> para <b>'. $mes.'/'.$ano.'</b>';
+			form_set_error($siape, $msg );
+		}			
+}
+
+function cf_consigsiape_webform_submission_presave($node, $submission) {
+
+	if ($node->title == 'consigsiape avulso') {	
+		//dpm($submission);
+		$ano  = $submission->data[2][0];
+		$mes  = $submission->data[3][0];
+		$siape   = $submission->data[4][0];
+		$siape_benef_pensao = $submission->data[5][0];
+		$comando = $submission->data[6][0];
+		$contrato =  $submission->data[7][0];
+		$arquivo = cf_consigsiape_grava_consigsiape_avulso($ano, $mes, $siape,$siape_benef_pensao,$comando,$contrato);
+		
+		if ($arquivo) {
+			$url = 'system/files/consigsiape/'.$arquivo->filename;
+			$msg = 'Arquivo gerado: <a class="consigsiape" title="Clique com o botão direito do mouse e depois em Salvar link como... para baixar." href="/'.$url.'">'.$arquivo->filename.'</a>';
+			drupal_set_message($msg);
+		} 
+		else {
+			$msg = 'Falha ao gerar o arquivo CONSIGSIAPE';
+			drupal_set_message($msg);
+		}
+		drupal_goto('consigsiape-avulso');
+    }		
+
+	if ($node->title == 'Relatório pagamentos do filiado') {	
+		
+	    $mes  = $submission->data[2][0];
+		$ano  = $submission->data[4][0];
+		
+		cf_import_siape_apaga_pagamentos_dos_filiados($user->uid);	
+		// Chamar a importação
+		// /import/gerar_pagamentos_do_filiado
+		
+		if ($arquivo) {
+			$url = 'system/files/consigsiape/'.$arquivo->filename;
+			$msg = 'Arquivo gerado: <a class="consigsiape" title="Clique com o botão direito do mouse e depois em Salvar link como... para baixar." href="/'.$url.'">'.$arquivo->filename.'</a>';
+			drupal_set_message($msg);
+		} 
+		else {
+			$msg = 'Falha ao gerar o arquivo CONSIGSIAPE';
+			drupal_set_message($msg);
+		}
+		drupal_goto('consigsiape-avulso');
+    }
+}
+
+/* GRAVA COMANDO DO CONSIGSIAPE - IGUAL*/ 
+function cf_consigsiape_grava_temporario($comando,$cpf) {
+	
+	$queryfiliado = new EntityFieldQuery();	
+	$result = $queryfiliado->entityCondition('entity_type', 'node')
+	->entityCondition('bundle', 'filiado')
+	->propertyCondition('status', NODE_PUBLISHED)
+	->fieldCondition('field_cpf', 'value',$cpf, '=')
+	->execute();
+    
+	if (!empty($result)){
+				
+		$filiados = node_load_multiple(array_keys($result['node']));	
+		foreach ($filiados as $filiado) { 
+		    
+			$nome 	= $filiado->field_nome['und'][0]['value'];
+			$cpf 	= $filiado->field_cpf['und'][0]['value'];
+			$siape 	= $filiado->field_siape['und'][0]['value'];
+			$situacao_funcional = taxonomy_term_load($filiado->field_situacao_funcional['und'][0]['tid']);
+			$situacao_funcional = $situacao_funcional->name;	
+            			
+			if (isset($filiado->field_siape_inst['und'][0]['value'])) {
+				$siape_instituidor = $filiado->field_siape_inst['und'][0]['value'];
+			}
+										
+			$anomes = date("Y/m/d H:i:s");
+			$contrato = ' ';
+
+			// obtem descrição da situação funcional
+                              					  
+			if 	(strtolower($situacao_funcional) == 'pensionista') {
+			   // Se pensionista
+			   $siape = $filiado->field_siape_inst['und'][0]['value'];
+			   $siape_benef_pensao = $filiado->field_siape['und'][0]['value'];
+			   $contrato = $siape_benef_pensao .'-'. str_replace('/','',substr($anomes,0,10));																															
+			} else {
+			   // Se servidor
+			   $siape   			= $filiado->field_siape['und'][0]['value'];
+			   $siape_benef_pensao = ' ';
+			   $siape_benef_pensao  = str_pad($siape_benef_pensao , 8 , ' ');
+			   $contrato = $siape .'-'. str_replace('/','',substr($anomes,0,10));
+			} 
+			
+			cf_consigsiape_grava_comando_de_consignacao($anomes,$siape,$siape_benef_pensao,$contrato, $comando,$cpf,$nome);
+
+			/*
+			$node_consigsiape = new stdClass();  // Create a new node object
+			$node_consigsiape->type = 'consigsiape'; 
+			node_object_prepare($node_consigsiape);
+			$node_consigsiape->field_ano_mes['und'][0]['value'] = $anomes;
+			$node_consigsiape->field_matricula_serv_inst['und'][0]['value'] = $siape;
+			$node_consigsiape->field_matricula_pen_ser['und'][0]['value'] = $siape_benef_pensao;
+			$node_consigsiape->field_comando['und'][0]['value'] = $comando;
+			$node_consigsiape->field_contrato['und'][0]['value'] = $contrato;
+			$node_consigsiape->field_cpf['und'][0]['value'] = $cpf;
+			$node_consigsiape->field_nome['und'][0]['value'] = $nome;
+			node_save($node_consigsiape);
+			*/
+		}
+	} 
+}
+
+/* igual */
+function cf_consigsiape_grava_consigsiape($ano, $mes, $data_hora,$arquivo_name) {
+	
+	// Chamado de cf_consigsiape_views_pre_render
+	
+	$processamento_ano = $ano;
+	$processamento_mes 	= $mes;
+	$anomes = $ano.'/'.$mes.'/'.'01'.' 00:00:00';
+	
+	$queryconsigsiape = new EntityFieldQuery();	
+	$result = $queryconsigsiape->entityCondition('entity_type', 'node')
+	->entityCondition('bundle', 'consigsiape')
+	->propertyCondition('status', NODE_PUBLISHED)
+	->fieldCondition('field_status_consigsiape', 'value',0, '=')
+	->execute();
+    $msg ='';
+	if (!empty($result)){
+		
+		// Output into a txt file
+		//if (file_exists($arquivo_name)) {
+		//	unlink($arquivo_name);
+		//	dpm('arquivo excluido');
+		//}
+		$txt_file = fopen($arquivo_name, 'w'); // or die('Cant open file!');
+		if ($txt_file ) {
+			$tipo_0 = cf_consigsiape_grava_header($processamento_ano, $processamento_mes);	
+			fputs($txt_file, $tipo_0.PHP_EOL);
+			
+			$consigsiapes = node_load_multiple(array_keys($result['node']));
+			$count = 0;		
+			foreach ($consigsiapes as $consigsiape) { 
+				$numero_matricula 				= $consigsiape->field_matricula_serv_inst['und'][0]['value']; 
+				if (isset($consigsiape->field_matricula_pen_ser['und'][0]['value'])) {
+					$matricula_benef_pensao 		= $consigsiape->field_matricula_pen_ser['und'][0]['value'];
+				} else 
+				{
+				  $matricula_benef_pensao = ' ';
+				  $matricula_benef_pensao = str_pad($matricula_benef_pensao,8,' ');
+				}
+				$comando						= $consigsiape->field_comando['und'][0]['value'];
+				$numero_contrato				= $consigsiape->field_contrato['und'][0]['value'];
+				$nome                           = $consigsiape->field_nome['und'][0]['value'];
+				$assunto_calculo_parametrizado	= '15' ;
+				
+				$tipo_1 = cf_consigsiape_grava_dados_contrato($numero_matricula,$matricula_benef_pensao,$comando,$numero_contrato,$assunto_calculo_parametrizado);
+				
+				//dpm(strlen($tipo_1));
+				//dpm($tipo_1);
+				// grava consigsiape
+				
+				//$node_consigsiape = new stdClass();  // Create a new node object
+				//$node_consigsiape->type = 'consigsiape'; 
+				//node_object_prepare($node_consigsiape);
+				
+				//$consigsiapes->field_matricula_serv_inst['und'][0]['value'] = $numero_matricula;
+				//$consigsiapes->field_nome['und'][0]['value'] = $nome;
+				//$consigsiapes->field_comando['und'][0]['value'] = $comando;
+				$consigsiape->field_ano_mes['und'][0]['value'] = $anomes;
+				$consigsiape->field_status_consigsiape['und'][0]['value'] = 1;
+				$consigsiape->field_data_consigsiape['und'][0]['value'] = $data_hora ;
+				node_save($consigsiape);
+				
+				fputs($txt_file, $tipo_1.PHP_EOL);
+				$count = $count + 1;
+			}
+			//$tipo_2 = cf_consigsiape_grava_consignacao();
+			//fputs($txt_file, $tipo_2.PHP_EOL);
+			
+			$tipo_9 = cf_consigsiape_grava_trailler($count);
+			fputs($txt_file, $tipo_9);
+			
+			fclose($txt_file);
+			$msg = 'Arquivo gerado';
+		} else {
+			$msg = 'Falha ao criar o arquivo';
+	    }
+	}	
+	return($msg);
+}
+
+/* IGUAL */
+function cf_consigsiape_grava_consigsiape_avulso($ano, $mes, $siape, $siape_benef_pensao,$comando,$contrato) {
+	
+$processamento_ano  			= $ano;
+ if (strlen($mes) < 2) {
+	 $mes = '0'.$mes;
+ }
+$processamento_mes  			= $mes;
+$numero_matricula   			= $siape;
+$matricula_benef_pensao 		= $siape_benef_pensao;
+$comando = $comando;
+$assunto_calculo_parametrizado 	= '15';
+$numero_contrato 				= $contrato;
+//$linha = 'Ano: '. $ano. ' | Mes: '. $mes. ' | Siape: '. $siape. ' | Siape beneficiario: '.$siape_benef_pensao. ' | Comando: '. $comando. ' | Contrato: ' . $contrato ;
+//dpm($linha);
+
+$tipo_0 = cf_consigsiape_grava_header($processamento_ano, $processamento_mes);
+//dpm(strlen($tipo_0));
+
+$tipo_1 = cf_consigsiape_grava_dados_contrato($numero_matricula,$matricula_benef_pensao,$comando,$numero_contrato,$assunto_calculo_parametrizado);
+//dpm(strlen($tipo_1));
+
+//$tipo_2 = cf_consigsiape_grava_consignacao();
+//dpm(strlen($tipo_2));
+
+$tipo_9 = cf_consigsiape_grava_trailler(1);
+//dpm(strlen($tipo_9));
+
+$consigsiape = $tipo_0.PHP_EOL.$tipo_1.PHP_EOL.$tipo_9;
+
+$arquivo_name = 'consigsiape-'.$processamento_ano.$processamento_mes.'-avulso.txt'; 
+$file = file_save_data($consigsiape,'private://consigsiape/' .$arquivo_name, $replace = FILE_EXISTS_REPLACE);
+
+//file_put_contents('consigsiape.txt', print_r($consigsiape, true));
+
+return ($file);
+}
+
+/* IGUAL */
+function cf_consigsiape_filler($tamanho,$tipo) {
+	
+	$filler = $tipo;
+	
+	for ($i=1; $i < $tamanho; $i++) {
+		$filler = $filler . $tipo;
+	}
+	return ($filler);
+}
+
+/* IGUAL */
+function cf_consigsiape_grava_header($ano,$mes) {
+
+
+
+$tipo_registro    		= '0';				// Numérico	1
+$processamento_ano   	= $ano;  	 		// Numérico 4 (9999) -  Ano de pagamento (4 dígitos) ]
+$processamento_mes   	= $mes;		 		// Numérico 2 (99) -  Mês de pagamento
+$pj_consignataria    	= '29213055000161';	// Numérico 14 - N = Número do CNPJ da Consignatária
+$constante 		     	= 'CONSIGSIAPE'; 	// Alfanumérico 11
+$filler 			 	= cf_consigsiape_filler(521 , ' '); 
+
+$tipo_0 = $tipo_registro . $processamento_ano . $processamento_mes . $pj_consignataria . $constante .$filler ;
+
+return($tipo_0);
+}
+
+/*IGUAL */
+function cf_consigsiape_grava_dados_contrato($numero_matricula,$matricula_benef_pensao,$comando,$numero_contrato,$assunto_calculo_parametrizado) {
+	
+$tipo_registro							= '1';									// Numérico	1
+$orgao_siape							= '26201';								// Numérico	5
+
+$numero_matricula 						= str_pad(trim($numero_matricula),7,'0',STR_PAD_LEFT);					// Numérico	7
+//$linha = "matricula: " .$numero_matricula. ' tamanho: '.strlen($numero_matricula);
+//dpm($linha);
+
+$matricula_benef_pensao                 = str_pad(trim($matricula_benef_pensao),8,'0',STR_PAD_LEFT);
+//$linha = "matricula_benef_pensao: " .$matricula_benef_pensao. ' tamanho: '.strlen($matricula_benef_pensao);
+//dpm($linha);
+
+$comando								= $comando;								// Numérico	1
+$numero_contrato						= str_pad(trim($numero_contrato),20,' ');
+//$linha = "contrato: " .$numero_contrato. ' tamanho: '.strlen($numero_contrato);
+//dpm($linha);
+
+// Alfanumérico	20
+$rubrica								= '34477';								// Numérico	5
+$sequencia								= '1';									// Numérico	1
+$valor									= cf_consigsiape_filler( 11 , '0'); 
+$prazo									= cf_consigsiape_filler( 3 , '0'); 
+$valor_bruto_contrato					= cf_consigsiape_filler( 11 , '0'); 
+$valor_liquido_creditado				= cf_consigsiape_filler( 11 , '0'); 
+$iof									= cf_consigsiape_filler( 7 , '0'); 
+$taxa_Juros_Mensal						= cf_consigsiape_filler( 7 , '0'); 
+$cet									= cf_consigsiape_filler( 7 , '0'); 
+$data_limite_anuencia					= cf_consigsiape_filler( 8 , '0'); 
+$email_contratante_1					= cf_consigsiape_filler( 60 , ' '); 
+$email_contratante_2					= cf_consigsiape_filler( 60 , ' '); 
+$email_contratante_3					= cf_consigsiape_filler( 60 , ' '); 
+$cnpj_portabilidade						= cf_consigsiape_filler( 14 , '0'); 
+$contrato_portabilidade					= cf_consigsiape_filler( 20 , ' ');
+$data_cip								= cf_consigsiape_filler( 8 , '0'); 
+$codigo_cip								= cf_consigsiape_filler( 21 , ' '); 
+$contrato_renovacao_1                   = cf_consigsiape_filler( 20 , ' '); 
+$contrato_renovacao_2					= cf_consigsiape_filler( 20 , ' '); 
+$contrato_renovacao_3					= cf_consigsiape_filler( 20 , ' '); 
+$contrato_renovacao_4					= cf_consigsiape_filler( 20 , ' '); 
+$contrato_renovacao_5					= cf_consigsiape_filler( 20 , ' '); 
+$contrato_renovacao_6					= cf_consigsiape_filler( 20 , ' '); 
+$contrato_renovacao_7					= cf_consigsiape_filler( 20 , ' '); 
+$contrato_renovacao_8					= cf_consigsiape_filler( 20 , ' '); 
+$assunto_calculo_parametrizado			= str_pad(trim($assunto_calculo_parametrizado),2,'0'); // Numérico	2
+//$linha = "assunto_calculo_parametrizado: " .$assunto_calculo_parametrizado. ' tamanho: '.strlen($assunto_calculo_parametrizado);
+//dpm($linha);
+$percentual								= '00100';						  // Numérico	5
+$rubrica_calculo_1						= cf_consigsiape_filler( 5 , '0'); 
+$rubrica_calculo_2						= cf_consigsiape_filler( 5 , '0'); 
+$rubrica_calculo_3						= cf_consigsiape_filler( 5 , '0'); 
+$rubrica_calculo_4						= cf_consigsiape_filler( 5 , '0'); 
+$rubrica_calculo_5						= cf_consigsiape_filler( 5 , '0'); 
+$rubrica_calculo_6						= cf_consigsiape_filler( 5 , '0'); 
+$ano_mes_carencia                       = cf_consigsiape_filler( 6 , ' '); 
+
+$tipo_1 = $tipo_registro. $orgao_siape.$numero_matricula.$matricula_benef_pensao.$comando.$numero_contrato.$rubrica.$sequencia;
+$tipo_1 = $tipo_1 .$valor.$prazo.$valor_bruto_contrato.$valor_liquido_creditado.$iof.$taxa_Juros_Mensal.$cet.$data_limite_anuencia;
+$tipo_1 = $tipo_1 .$email_contratante_1.$email_contratante_2.$email_contratante_3.$cnpj_portabilidade.$contrato_portabilidade;
+$tipo_1 = $tipo_1 .$data_cip.$codigo_cip.$contrato_renovacao_1 .$contrato_renovacao_2.$contrato_renovacao_3.$contrato_renovacao_4;
+$tipo_1 = $tipo_1 .$contrato_renovacao_5.$contrato_renovacao_6.$contrato_renovacao_7.$contrato_renovacao_8.$assunto_calculo_parametrizado;
+$tipo_1 = $tipo_1 .$percentual.$rubrica_calculo_1.$rubrica_calculo_2.$rubrica_calculo_3.$rubrica_calculo_4.$rubrica_calculo_5.$rubrica_calculo_6;
+$tipo_1 = $tipo_1 .$ano_mes_carencia; 
+
+
+  return($tipo_1);
+}
+
+/* IGUAL */
+function cf_consigsiape_grava_consignacao() {
+
+$tipo_registro	= '2';	// Numérico	1
+$url_anuencia 	= cf_consigsiape_filler( 250 , ' '); 
+$url_rejeicao 	= cf_consigsiape_filler( 250 , ' '); 
+$filler 	    = cf_consigsiape_filler( 52 , ' '); 
+
+$tipo_2 = $tipo_registro. $url_anuencia . $url_rejeicao. $filler;
+
+return($tipo_2);
+}
+
+/* igual */
+
+function cf_consigsiape_grava_trailler($qtd) {
+	
+$tipo_registro    		= '9';			// Numérico	1
+$quantidade_registro 	= str_pad(trim($qtd) ,7, '0',STR_PAD_LEFT); 	//  Qtd registros tipo 1, completando com zeros à esquerda.
+$filler 			 	= cf_consigsiape_filler( 545 , ' '); 
+
+$tipo_9 = $tipo_registro. $quantidade_registro. $filler ;
+
+return($tipo_9);
+
+}
+
+function cf_consigsiape_grava_comando_de_consignacao($anomes,$siape,$siape_benef_pensao,$contrato, $comando,$cpf,$nome) {
+	/*
+	   Chamado de cf_consigsiape_grava_temporario
+	   Inclusão/Exclusão de contrato normal
+	   
+	   Chamado de  cf_consigsiape_node_presave
+	   $node->type == 'retorno_contratos_inclusao'
+	   Re-envio de comando por rejeição de retorno de contrato
+	   código = E009 / CONSIGNATARIA NAO AUTORIZADA PELO BENEFICIARIO
+
+	*/
+
+	$node_consigsiape = new stdClass();  // Create a new node object
+	$node_consigsiape->type = 'consigsiape'; 
+	node_object_prepare($node_consigsiape);
+	$node_consigsiape->field_ano_mes['und'][0]['value'] 			= $anomes;
+	$node_consigsiape->field_matricula_serv_inst['und'][0]['value'] = $siape;
+	$node_consigsiape->field_matricula_pen_ser['und'][0]['value'] 	= $siape_benef_pensao;
+	$node_consigsiape->field_comando['und'][0]['value'] 			= $comando;
+	$node_consigsiape->field_contrato['und'][0]['value'] 			= $contrato;
+	$node_consigsiape->field_cpf['und'][0]['value'] 				= $cpf;
+	$node_consigsiape->field_nome['und'][0]['value'] 				= $nome;
+	node_save($node_consigsiape);
+}
+
+function cf_consigsiape_node_presave($node) {
+
+	if ($node->type == 'retorno_contratos_inclusao') {
+		// Criado em data: 04/06/2022
+		// Após gravar um retorno de contrato de inclusão
+		// verifica se existe algum código de retorno = E009
+		// E009 = CONSIGNATARIA NAO AUTORIZADA PELO BENEFICIARIO
+		// Existindo, criar um novo comando de inclusão com o mesmo
+		// número de contrato para este filiado.
+			
+		$codigo = trim($node->field_codigo_retorno['und'][0]['value']);
+        $regra = '';
+
+		if ($codigo == "E009") {
+			$siape    			= $node->field_matricula_siape['und'][0]['value'];
+			$siape_benef_pensao = $node->field_matricula_beneficiario['und'][0]['value'];
+			
+			if ($siape_benef_pensao == '00000000') { 
+			    $siape_benef_pensao='';
+		    }
+			
+			$contrato 			= $node->field_contrato['und'][0]['value'];
+			$envio   = 0   ; // Não encaminhado
+			$comando = '4' ; //Inclusão
+			$mesano  = date("Y-m-d H:i:s");
+			$cpf  = ' ' ;
+			$nome = ' ';
+
+			$comandoexistente = cf_consigsiape_ver_comandoexistente_consigsiape($siape,$comando,$mesano,$envio);
+
+			if (!$comandoexistente) {
+                
+				// Obter dados (CPF,NOME, CELULAR e EMAIL) do filiado em Filiados com o SIAPE
+				$queryfiliado = new EntityFieldQuery();	
+				$result = $queryfiliado->entityCondition('entity_type', 'node')
+					->entityCondition('bundle', 'filiado')
+					->propertyCondition('status', NODE_PUBLISHED)
+					->fieldCondition('field_siape', 'value', $siape, '=')
+					->execute();
+
+				if (!empty($result)){
+					$filiados = node_load_multiple(array_keys($result['node']));
+					foreach ($filiados as $filiado) { 							
+						$nome 	  = $filiado->field_nome['und'][0]['value'];
+						$cpf  	  = $filiado->field_cpf['und'][0]['value'];
+						$celular  = $filiado->field_filiado_celular['und'][0]['value'];
+						$filiacao = $filiado->field_data_de_filiacao['und'][0]['value'];
+						$to       = $filiado->field_e_mail['und'][0]['value'];
+						$filiacao = substr($filiacao,8,2).'/'. substr($filiacao,5,2).'/'.substr($filiacao,0,4);
+
+					}
+					
+					// VERIFICA SE TEM CONTRATO INCLUÍDO
+					// Antes de Gravar novo comando verifica se tem um retorno 
+					// de contrato de Inclusão para este contrato com mensagem
+					// de Inclusão efetuada.
+					
+					// Siape
+					// Contrato
+					// Tipo de retorno = 1 
+					// Mensagem = 'INCLUSAO EFETUADA';
+					$contrato_incluido = FALSE;
+					$contrato_incluido = cf_consigsiape_contrato_incluido($siape,$contrato);
+					//SE NÃO TEM CONTRATO INCLUÍDO
+					if (!$contrato_incluido) {
+						//dpm('Reenvio de comando para Siape:'.$siape.' Contrato:'. $contrato );
+						// Grava novo comando de inclusão de consignação para
+						// envio no próximo arquivo CONSIGSIAPE.
+						cf_consigsiape_grava_comando_de_consignacao($mesano,$siape,$siape_benef_pensao,$contrato,$comando,$cpf,$nome);
+						
+						/* ENVIA E-MAIL PARA OPERADOR INFORMANDO SOBRE A PENDENCIA DE AUTORIZACAO */
+							$tipoconta='Autorização no SIGEPE/SIAPE';
+							$tipoconta_fim=taxonomy_get_term_by_name($tipoconta);
+							$termo = reset($tipoconta_fim);
+							$termoid = $termo->tid ;
+							cf_consigsiape_email_pendencencia_autorizacao($termoid,$nome,$cpf,$siape,$celular,$filiacao, $email);
+
+	                } 	    
+				}
+            } 
+		}
+    }
+	
+	if ($node->type == 'consigsiape') {
+		
+		$temd8 = false;
+		$txt_comando = '';
+		$comando = $node->field_comando['und'][0]['value'];
+		
+		switch ($comando) {
+			case '3':
+			    $txt_comando = 'Exclusão';
+				break;			   
+			case '4':
+			    $txt_comando = 'Inclusão';
+			   	break;
+			case '5':
+			   $txt_comando = 'Alteração';
+			   	break;
+		}
+		
+		// Se chegou  é porque não está em rubricas excluidas
+		// verificado em my_module_form_validate_consigsiape
+		
+		$matricula_servidor = trim($node->field_matricula_serv_inst['und'][0]['value']);
+		
+		if (isset($node->field_matricula_pen_ser['und'][0]['value'])) {
+			$matricula_beneficiario = trim($node->field_matricula_pen_ser['und'][0]['value']);
+		} else {
+		  $matricula_beneficiario = ' ';
+		  $matricula_beneficiario = str_pad($matricula_beneficiario, 8 , ' ');		  
+		}
+		// carrega $siape com a matricula do beneficiário ou do servidor/instituidor
+		if (empty(trim($matricula_beneficiario))) {
+			$siape = $matricula_servidor ;
+			$tipo = 'servidor';
+		} else {
+			$siape = $matricula_beneficiario;
+			$tipo = 'pensionista';
+		}
+		
+		// Localiza em filiados o siape;
+		$queryfiliado = new EntityFieldQuery();	
+		$result = $queryfiliado->entityCondition('entity_type', 'node')
+				->entityCondition('bundle', 'filiado')
+				->propertyCondition('status', NODE_PUBLISHED)
+				->fieldCondition('field_siape', 'value', $siape, '=')
+				->execute();
+
+		if (!empty($result)){
+			// O filiado existe
+			// Guarda nome e cpf para consigsiape
+			$filiados = node_load_multiple(array_keys($result['node']));
+			foreach ($filiados as $filiado) { 
+			    $node->field_nome['und'][0]['value'] =  $filiado->field_nome['und'][0]['value']; 
+			    $node->field_cpf['und'][0]['value']  =  $filiado->field_cpf['und'][0]['value'];  
+			    $situacao_funcional = taxonomy_term_load($filiado->field_situacao_funcional['und'][0]['tid']);
+			    $situacao_funcional = $situacao_funcional->name;
+			    
+				//$linha = $siape. ' - '. $filiado->field_nome['und'][0]['value'] . ' - '. $situacao_funcional ;
+                //dpm($linha);
+				
+				if 	((strtolower($situacao_funcional)) == 'pensionista') {
+					   // Se pensionista
+					   $matricula_servidor = $filiado->field_siape_inst['und'][0]['value'];
+					   $matricula_beneficiario = $filiado->field_siape['und'][0]['value'];
+
+                       $node->field_field_matricula_serv_inst['und'][0]['value'] = $matricula_servidor;
+					   $node->field_field_matricula_pen_ser['und'][0]['value'] = $matricula_beneficiario;
+				} else {
+					   // Se servidor
+					   $matricula_servidor		= $filiado->field_siape['und'][0]['value'];
+					   $matricula_beneficiario  = '        '; // 8 pos
+
+					   $node->field_field_matricula_serv_inst['und'][0]['value'] = $matricula_servidor;
+					   $node->field_field_matricula_pen_ser['und'][0]['value'] = $matricula_beneficiario;
+				} 
+				//$linha = 'Matricula do servidor/inst: '. $matricula_servidor. ' | matricula do beneficiário:  '. $matricula_beneficiario;
+				//dpm($linha);
+			}
+		}	
+		
+		 // Verifica se tem consignação D8 para
+		 // obter o contrato e ver se pode Incluir ou alterar/excluir
+		 // no consigsiape tem que pesquisar pela field_matricula_serv_inst quando for servidor e
+		 // field_matricula_pen_ser quando for pensionista
+		 
+			$queryd8 = new EntityFieldQuery();	
+			$resultd8 = $queryd8->entityCondition('entity_type', 'node')
+					->entityCondition('bundle', 'consignacao')
+					->propertyCondition('status', NODE_PUBLISHED)
+					->fieldCondition('field_matricula_pen_ser', 'value', $siape, '=')
+					->execute();
+				
+		if (!empty($resultd8)){
+			// Encontrou siape do D8 - não pode incluir, só alterar ou excluir
+			$d8s = node_load_multiple(array_keys($resultd8['node']));
+			foreach ($d8s as $d8) { 
+			   // Guarda numero do último contrato
+			   $node->field_contrato['und'][0]['value'] = $d8->field_numero_contrato['und'][0]['value']; 			   
+			   $temd8 = true;
+			}
+		}
+		
+		if (!$temd8) {
+			// Inclusão - Não está em D8, cria contrato novo
+			if ($node->field_comando['und'][0]['value'] == '4' ) {
+				if (isset($node->field_contrato['und'][0]['value'])) {
+					$contrato = $node->field_contrato['und'][0]['value'];
+			    } else {
+					$contrato = '';
+				}
+                // Contrato preenchido?
+				//   Quando vem de pendente para filiado 
+				//   Contrato = siape + data de filiação
+				//   Quando vem de adicionar comando manual
+				//   Contrato = siape + ano/mes/01 da data de geração
+				if (empty($contrato)) {
+				                 			
+					$contrato_1 = $siape;
+					$contrato_2 = $node->field_ano_mes['und'][0]['value'];
+					
+					if (strpos($contrato_2,'-')) {
+						$contrato_2 = substr(str_replace('-','',$contrato_2),0,8);
+					}
+					if (strpos($contrato_2,'/')) {
+						$contrato_2 = substr(str_replace('/','',$contrato_2),0,8);
+					}
+                    $contrato = $contrato_1.'-'.$contrato_2;
+                }
+				
+				$node->field_contrato['und'][0]['value'] = $contrato;			 
+				
+			} else {
+			  	$msg ='Erro! '. $txt_comando .' não permitida. O SIAPE ' .$siape. ' do '.$tipo .' '. $node->field_nome['und'][0]['value']. ' não consta das consiguinações D8';
+				drupal_set_message($msg,'error');
+				//file_put_contents('drupal--debug-user_msg.txt', $msg, true);
+				drupal_goto('comandosconsigsiape');
+			}
+		} else {
+			// Tem D8 e está tentando incluir, setar erro
+		    if ($node->field_comando['und'][0]['value'] == '4' ) {
+				$msg ='Erro! '. $txt_comando .' não permitida. O SIAPE ' .$siape. ' do '.$tipo .' '.  $node->field_nome['und'][0]['value']. ' consta das consiguinações D8';
+				drupal_set_message($msg,'error');
+				//file_put_contents('drupal--debug-user_msg.txt', $msg, true);
+				drupal_goto('comandosconsigsiape');
+			}
+		}
+	}
+}
+
+function cf_consigsiape_contrato_incluido($siape, $contrato) {
+	$retorno = FALSE;
+	$tipo_de_retorno = '1';
+	$mensagem = 'INCLUSAO EFETUADA';
+	$queryretorno = new EntityFieldQuery();	
+		$resultretorno = $queryretorno->entityCondition('entity_type', 'node')
+		->entityCondition('bundle', 'retorno_contratos_inclusao')
+		->propertyCondition('status', NODE_PUBLISHED)
+		->fieldCondition('field_matricula_siape', 'value', $siape, '=')
+		->fieldCondition('field_contrato', 'value', $contrato, '=')
+		->fieldCondition('field_tipo_de_retorno', 'value', $tipo_de_retorno, '=')
+		->fieldCondition('field_mensagem', 'value', $mensagem, '=')
+		->execute();
+        
+		if (!empty($resultretorno)){
+			$retornos_existe = node_load_multiple(array_keys($resultretorno['node']));
+			foreach ($retornos_existe as $retorno_existe) { 
+				   $retorno = TRUE;
+			}
+		} 
+	return ($retorno);
+}
+
+function cf_consigsiape_email_pendencencia_autorizacao($termoid,$nome,$cpf,$siape,$celular,$filiacao,$email) {
+	// Filiados > Configurar e-mail de notificação.
+	$querymail = new EntityFieldQuery();	
+	$resultmail = $querymail->entityCondition('entity_type', 'node')
+	->entityCondition('bundle', 'email')
+	->propertyCondition('status', NODE_PUBLISHED)
+	->fieldCondition('field_tipo_de_email', 'tid', $termoid)
+	->execute(); 
+		if (!empty($resultmail)){
+			  $emails = node_load_multiple(array_keys($resultmail['node']));
+			  foreach ($emails as $mail) {
+				 $subject = $mail->title;
+				 $body  = $mail->body['und'][0]['value'];
+				 $envia = $mail->field_enviar['und'][0]['value'];
+				 $to    = $mail->field_destinatario['und'][0]['value'];
+			  }			   
+			  // Troca body adicionando as variáveis
+				$body = str_replace('Nome','Nome: '.$nome,$body);
+				$body = str_replace('CPF','CPF: '.$cpf,$body);
+				$body = str_replace('Siape','Siape: '.$siape,$body);
+				$body = str_replace('Celular','Celular: '.$celular,$body);
+				$body = str_replace('e-Mail','e-Mail: '. trim($email),$body);
+				$body = str_replace('Filiação','Data de Filiação: '. trim($filiacao),$body);
+				file_put_contents('drupal--comando_existe.txt', print_r($body, true));
+			  // envia ==1 Sim
+			  if ($envia == 1 ) { 
+				 $from = variable_get('site_mail', '');
+				 //dpm($from);
+				 //$from = 'filiacao@sindscope.org.br';
+				 simple_mail_send($from, $to, $subject, $body);
+			  }
+		} 
+}
+/*
+function cf_consigsiape_obtem_cpf_filiado($siape) {
+	    // Criado em data: 04/06/2022	
+		// Obtem CPF do filiado com base na matricula SIAPE
+		$situacao = 'Filiado';
+		$situacao_sindical_id = taxonomy_get_term_by_name($situacao);
+		$situacao_sindical_id = reset($situacao_sindical_id);
+		$situacao_sindical = $situacao_sindical_id->tid;
+		//file_put_contents('drupal--situacao_sindical.txt', $situacao_sindical, true);
+		
+		$cpf = '';
+		$queryfiliado = new EntityFieldQuery();	
+		$result = $queryfiliado->entityCondition('entity_type', 'node')
+		->entityCondition('bundle', 'filiado')
+		->propertyCondition('status', NODE_PUBLISHED)
+		->fieldCondition('field_siape', 'value',$siape, '=')
+		->fieldCondition('field_situacaofiliado', 'tid',$situacao_sindical, '=')
+		->execute();
+		
+
+		if (!empty($result)){
+			$filiados = node_load_multiple(array_keys($result['node']));
+			foreach ($filiados as $filiado) { 
+				$cpf  =  $filiado->field_cpf['und'][0]['value'];
+				$nome =  $filiado->field_nome['und'][0]['value'];
+				
+				$texto = $siape.'/'.$cpf.'/'.$nome.'/';
+				return ($cpf);
+			}
+		}
+}
+*/

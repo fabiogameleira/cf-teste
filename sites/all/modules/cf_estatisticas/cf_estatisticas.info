@@ -1,0 +1,4 @@
+name = cf_estatisticas
+description = Geração de estatísticas por faixa etária.
+core = 7.x
+package = Other

@@ -1,0 +1,550 @@
+<?php
+function cf_import_malao_feeds_after_parse(FeedsSource $source, FeedsParserResult $result) {
+
+			$feedSource = feeds_source($source->id);			
+			$arquivo = $feedSource->config["FeedsFileFetcher"]["source"];    
+            $interrompe = FALSE;
+			$msg_erro = 'Nome do arquivo inválido!! O arquivo '. str_replace('private://feeds/','',$arquivo);
+			$msg_erro = $msg_erro .' possui nome incompatível com a importação sendo efetuada.';	
+   				
+			switch ($source->id) {
+			  // Importar do malão	
+			  case 'importar_filiados':
+			  		//Associados_Prod_v2.csv
+					if (!strpos($arquivo,'associados')) {
+					   $interrompe = TRUE;
+					}
+					cf_import_malao_importar_filiados($result,$arquivo,$interrompe, $msg_erro);
+					break;	
+			  // Importar do malão
+			  case 'importar_acoes':
+			  		// acoes.csv		  
+					if (!strpos($arquivo,'acoes')) {
+					   $interrompe = TRUE;
+					}
+					cf_import_malao_importar_acoes($result,$arquivo,$interrompe,$msg_erro);
+					break;
+			  // Importar do malão		
+			  case 'importar_assembleias':
+					//Assembleias_Prod_v1.csv			  		
+					if (!strpos($arquivo,'assembleias')) {
+					   $interrompe = TRUE;
+					}					
+					cf_import_malao_importar_assembleias($result,$arquivo,$interrompe,$msg_erro);
+					break;	
+			  // Importar do malão
+			  case 'importar_acoes_filiado':
+					if (!strpos($arquivo,'participantes_acao')) {
+					   $interrompe = TRUE;
+					}					
+					cf_import_malao_importar_acoes_filiado($result,$arquivo,$interrompe,$msg_erro,$nomenclaturaarquivo);
+					break;									
+			  default:	
+				break;		  
+			}	
+	
+}
+
+/* IMPORTAR FILIADOS */
+// Importar do MALAO
+function cf_import_malao_importar_filiados($result,$arquivo,$interrompe, $msg_erro)  {
+		
+		$n=0;
+		foreach($result->items as $item_key) {
+          		  
+		    /* COVERTE DATAS */
+			// Data de Nascimento
+			   if (!empty($item_key['dt_nascimento'])) {
+				$data = explode('/',str_replace(" 00:00:00","",$item_key['dt_nascimento']));
+				$data = $data[1] . '/' . $data[0] . '/' . $data[2]; 
+				$item_key['dt_nascimento'] = $data;	
+				$result->items[$n]['dt_nascimento'] = $item_key['dt_nascimento'];
+			   }	
+			// Data de dt_identidade_exp
+			if (!empty($item_key['dt_identidade_exp'])) {
+				$data = explode('/',str_replace(" 00:00:00","",$item_key['dt_identidade_exp']));
+				$data = $data[1] . '/' . $data[0] . '/' . $data[2]; 
+				$item_key['dt_identidade_exp'] = $data;	
+				$result->items[$n]['dt_identidade_exp'] = $item_key['dt_identidade_exp'];
+			}
+
+			if (!empty($item_key['dt_aposentadoria'])) {		
+			// Data de dt_aposentadoria
+				$data = explode('/',str_replace(" 00:00:00","",$item_key['dt_aposentadoria']));
+				$data = $data[1] . '/' . $data[0] . '/' . $data[2]; 
+				$item_key['dt_aposentadoria'] = $data;	
+				$result->items[$n]['dt_aposentadoria'] = $item_key['dt_aposentadoria'];
+			}	
+			// Data de dt_aposentadoria_1 *
+			if (!empty($item_key['dt_aposentadoria_1'])) {			
+				$data = explode('/',str_replace(" 00:00:00","",$item_key['dt_aposentadoria_1']));
+				$data = $data[1] . '/' . $data[0] . '/' . $data[2]; 
+				$item_key['dt_aposentadoria_1'] = $data;	
+				$result->items[$n]['dt_aposentadoria_1'] = $item_key['dt_aposentadoria_1'];
+			}	
+			// Data de dt_desligamento *
+			if (!empty($item_key['dt_desligamento'])) {					
+				$data = explode('/',str_replace(" 00:00:00","",$item_key['dt_desligamento']));
+				$data = $data[1] . '/' . $data[0] . '/' . $data[2]; 
+				$item_key['dt_desligamento'] = $data;	
+				$result->items[$n]['dt_desligamento'] = $item_key['dt_desligamento'];
+			}	
+			// Data de dt_admissao *
+			if (!empty($item_key['dt_admissao'])) {			
+				$data = explode('/',str_replace(" 00:00:00","",$item_key['dt_admissao']));
+				$data = $data[1] . '/' . $data[0] . '/' . $data[2]; 
+				$item_key['dt_admissao'] = $data;	
+				$result->items[$n]['dt_admissao'] = $item_key['dt_admissao'];
+			}
+			// Data de dt_inscricao
+			if (!empty($item_key['dt_inscricao'])) {			
+				$data = explode('/',str_replace(" 00:00:00","",$item_key['dt_inscricao']));
+				$data = $data[1] . '/' . $data[0] . '/' . $data[2]; 
+				$item_key['dt_inscricao'] = $data;	
+				$result->items[$n]['dt_inscricao'] = $item_key['dt_inscricao'];				
+			} 
+			/* ESTADO CIVIL */	
+			switch ($item_key['cs_estado_civil']) {
+			  case 'C':
+				$item_key['cs_estado_civil'] = str_replace('C','Casado(a)',$item_key['cs_estado_civil']);	
+				$result->items[$n]['cs_estado_civil'] =   $item_key['cs_estado_civil'];	
+				break;
+			  case 'Q':
+				$item_key['cs_estado_civil'] = str_replace( 'Q','Desquitado(a)', $item_key['cs_estado_civil']);						
+				$result->items[$n]['cs_estado_civil'] =  $item_key['cs_estado_civil'];		
+				break;	
+			  case 'D':
+				$item_key['cs_estado_civil'] = str_replace( 'D','Divorciado(a)', $item_key['cs_estado_civil']);						
+				$result->items[$n]['cs_estado_civil'] =  $item_key['cs_estado_civil'];		
+				break;	
+			  case 'S':
+				$item_key['cs_estado_civil'] = str_replace( 'S','Solteiro(a)', $item_key['cs_estado_civil']);						
+				$result->items[$n]['cs_estado_civil'] =  $item_key['cs_estado_civil'];		
+				break;
+			  case 'V':
+				$item_key['cs_estado_civil'] = str_replace( 'V','Viúvo(a)', $item_key['cs_estado_civil']);						
+				$result->items[$n]['cs_estado_civil'] =  $item_key['cs_estado_civil'];		
+				break;				
+			  default:	
+				$item_key['cs_estado_civil'] = 'Outros';						
+				$result->items[$n]['cs_estado_civil'] =  $item_key['cs_estado_civil'];
+				break;		  
+			}	
+			
+			
+			/* AREA */	
+			switch ($item_key['cs_area']) {
+			  case 'A':
+				$item_key['cs_area'] = str_replace('A','Administrativo',$item_key['cs_area']);	
+				$result->items[$n]['cs_area'] =   $item_key['cs_area'];	
+				break;
+			  case 'D':
+				$item_key['cs_area'] = str_replace( 'D','Docente', $item_key['cs_area']);						
+				$result->items[$n]['cs_area'] =  $item_key['cs_area'];		
+				break;		
+			  default:	
+				$item_key['cs_area'] = 'Outro';						
+				$result->items[$n]['cs_area'] =  $item_key['cs_area'];
+				break;		  
+			}			
+			
+			/* sexo */	
+			switch ($item_key['cs_sexo']) {
+			  case 'M':
+				$item_key['cs_sexo'] = str_replace('M','Masculino',$item_key['cs_sexo']);	
+				$result->items[$n]['cs_sexo'] =   $item_key['cs_sexo'];	
+				break;
+			  case 'F':
+				$item_key['cs_sexo'] = str_replace( 'F','Feminino', $item_key['cs_sexo']);						
+				$result->items[$n]['cs_sexo'] =  $item_key['cs_sexo'];		
+				break;		
+			  default:	
+				$item_key['cs_sexo'] = 'Outro';						
+				$result->items[$n]['cs_sexo'] =  $item_key['cs_sexo'];
+				break;		  
+			}	
+			/* ESCOLARIDADE 
+			 Fundamental completo
+			 Fundamental incompleto
+			 Médio incompleto			 
+			 Médio completo
+			 Superior incompleto			 
+			 Superior completo
+			 Especialização			 
+			 Mestrado
+			 Não Informado			 
+			*/
+			switch ($item_key['cs_escolaridade']) {
+			  case '2':
+				$item_key['cs_escolaridade'] = str_replace( '2','Fundamental completo', $item_key['cs_escolaridade']);						
+				$result->items[$n]['cs_escolaridade'] =  $item_key['cs_escolaridade'];		
+				break;
+			  case '1':
+				$item_key['cs_escolaridade'] = str_replace( '1', 'Fundamental incompleto',$item_key['cs_escolaridade']);						
+				$result->items[$n]['cs_escolaridade'] =  $item_key['cs_escolaridade'];		
+				break;
+			  case '3':
+				$item_key['cs_escolaridade'] = str_replace( '3', 'Médio incompleto',$item_key['cs_escolaridade']);						
+				$result->items[$n]['cs_escolaridade'] =  $item_key['cs_escolaridade'];		
+				break;
+			  case '4':
+				$item_key['cs_escolaridade'] = str_replace( '4','Médio completo', $item_key['cs_escolaridade']);						
+				$result->items[$n]['cs_escolaridade'] =  $item_key['cs_escolaridade'];		
+				break;
+			  case '5':
+				$item_key['cs_escolaridade'] = str_replace( '5','Superior incompleto', $item_key['cs_escolaridade']);						
+				$result->items[$n]['cs_escolaridade'] =  $item_key['cs_escolaridade'];		
+				break;
+			  case '6':
+				$item_key['cs_escolaridade'] = str_replace( '6','Superior completo', $item_key['cs_escolaridade']);						
+				$result->items[$n]['cs_escolaridade'] =  $item_key['cs_escolaridade'];		
+				break;	
+			  case '9':
+				$item_key['cs_escolaridade'] = str_replace( '9','Especialização', $item_key['cs_escolaridade']);						
+				$result->items[$n]['cs_escolaridade'] =  $item_key['cs_escolaridade'];		
+				break;
+			  case '7':
+				$item_key['cs_escolaridade'] = str_replace( '7','Mestrado', $item_key['cs_escolaridade']);						
+				$result->items[$n]['cs_escolaridade'] =  $item_key['cs_escolaridade'];		
+				break;	
+			  case '8':
+				$item_key['cs_escolaridade'] = str_replace( '8','Doutorado', $item_key['cs_escolaridade']);						
+				$result->items[$n]['cs_escolaridade'] =  $item_key['cs_escolaridade'];		
+				break;					
+			  default:	
+			    $item_key['cs_escolaridade'] = 'Não Informado';
+				$result->items[$n]['cs_escolaridade'] =  $item_key['cs_escolaridade'];
+				break;			  
+			}
+            
+			/* SITUACAO sindical e funcional*/	
+			 
+			switch ($item_key['cs_status']) {
+			  case 'T':
+			    //cs_status = situação sindical
+				//cs_satatus_funcional = situação funcional
+				$item_key['cs_status'] = str_replace( 'T','Pendente', $item_key['cs_status']);
+				$item_key['cs_status_funcional'] ='Afastado';
+				
+				$result->items[$n]['cs_status'] =  $item_key['cs_status'];	
+				$result->items[$n]['cs_status_funcional'] =  $item_key['cs_status_funcional'];
+				
+				break;
+			  case 'I':
+				$item_key['cs_status'] = str_replace( 'I','Filiado', $item_key['cs_status']);
+				$item_key['cs_status_funcional'] = 'Aposentado';
+				
+				$result->items[$n]['cs_status'] =  $item_key['cs_status'];	
+				$result->items[$n]['cs_status_funcional'] =  $item_key['cs_status_funcional'];				
+				break;
+			  case 'A':
+				$item_key['cs_status'] = str_replace( 'A','Filiado', $item_key['cs_status']);	
+				$item_key['cs_status_funcional'] = 'Ativo';					
+
+				$result->items[$n]['cs_status'] =  $item_key['cs_status'];	
+				$result->items[$n]['cs_status_funcional'] =  $item_key['cs_status_funcional'];	
+				break;
+			  case 'D':
+				$item_key['cs_status'] = str_replace( 'D','Desfiliado', $item_key['cs_status']);	
+				$item_key['cs_status_funcional'] = 'Desfiliado';				
+
+				$result->items[$n]['cs_status'] =  $item_key['cs_status'];	
+				$result->items[$n]['cs_status_funcional'] =  $item_key['cs_status_funcional'];		
+				break;
+			  case 'X':
+				$item_key['cs_status'] = str_replace( 'X','Desfiliado', $item_key['cs_status']);
+				$item_key['cs_status_funcional'] = 'Excluído';					
+
+				$result->items[$n]['cs_status'] =  $item_key['cs_status'];	
+				$result->items[$n]['cs_status_funcional'] =  $item_key['cs_status_funcional'];		
+				break;
+			  case 'F':
+				$item_key['cs_status'] = str_replace( 'F','Desfiliado', $item_key['cs_status']);	
+				$item_key['cs_status_funcional'] = 'Falecido';				
+
+				$result->items[$n]['cs_status'] =  $item_key['cs_status'];	
+				$result->items[$n]['cs_status_funcional'] =  $item_key['cs_status_funcional'];			
+				break;
+			  case 'L':
+				$item_key['cs_status'] = str_replace( 'L','Pendente', $item_key['cs_status']);						
+				$item_key['cs_status_funcional'] = 'Licenciado';				
+
+				$result->items[$n]['cs_status'] =  $item_key['cs_status'];	
+				$result->items[$n]['cs_status_funcional'] =  $item_key['cs_status_funcional'];			
+				break;	
+			  case 'P':
+				$item_key['cs_status'] = str_replace( 'P','Filiado', $item_key['cs_status']);
+				$item_key['cs_status_funcional'] = 'Pensionista';				
+
+				$result->items[$n]['cs_status'] =  $item_key['cs_status'];	
+				$result->items[$n]['cs_status_funcional'] =  $item_key['cs_status_funcional'];		
+				break;	
+			  case 'R':
+				$item_key['cs_status'] = str_replace( 'R','Suspenso', $item_key['cs_status']);						
+				$item_key['cs_status_funcional'] = 'Redistribuído';						
+
+				$result->items[$n]['cs_status'] =  $item_key['cs_status'];	
+				$result->items[$n]['cs_status_funcional'] =  $item_key['cs_status_funcional'];			
+				break;	
+			  case 'S':
+				$item_key['cs_status'] = str_replace( 'S','Suspenso', $item_key['cs_status']);	
+				$item_key['cs_status_funcional'] = 'Suspenso';				
+				
+				$result->items[$n]['cs_status'] =  $item_key['cs_status'];	
+				$result->items[$n]['cs_status_funcional'] =  $item_key['cs_status_funcional'];		
+				break;					
+			  default:	
+			    $item_key['cs_status'] = 'Não Informado';
+			    $item_key['cs_status_funcional'] = 'Não Informado';				
+				
+				$result->items[$n]['cs_status'] =  $item_key['cs_status'];
+				$result->items[$n]['cs_status_funcional'] =  $item_key['cs_status_funcional'];				
+				break;			  
+			}
+			
+			/* UNIDADE */ 
+			switch ($item_key['cs_unidade']) {
+			  case 'C':
+				$item_key['cs_unidade'] = str_replace( 'C','Centro', $item_key['cs_unidade']);						
+				$result->items[$n]['cs_unidade'] =  $item_key['cs_unidade'];		
+				break;
+			  case 'CX':
+				$item_key['cs_unidade'] = str_replace( 'CX','Caxias', $item_key['cs_unidade']);						
+				$result->items[$n]['cs_unidade'] =  $item_key['cs_unidade'];		
+				break;
+			  case 'DG':
+				$item_key['cs_unidade'] = str_replace( 'DG','Reitoria', $item_key['cs_unidade']);						
+				$result->items[$n]['cs_unidade'] =  $item_key['cs_unidade'];		
+				break;
+			  case 'EI':
+				$item_key['cs_unidade'] = str_replace( 'EI','Educação Infantil', $item_key['cs_unidade']);						
+				$result->items[$n]['cs_unidade'] =  $item_key['cs_unidade'];		
+				break;
+			  case 'EN1':
+				$item_key['cs_unidade'] = str_replace( 'EN1','Eng. Novo I', $item_key['cs_unidade']);						
+				$result->items[$n]['cs_unidade'] =  $item_key['cs_unidade'];		
+				break;
+			  case 'EN2':
+				$item_key['cs_unidade'] = str_replace( 'EN2','Eng. Novo II', $item_key['cs_unidade']);						
+				$result->items[$n]['cs_unidade'] =  $item_key['cs_unidade'];		
+				break;
+			  case 'H1':
+				$item_key['cs_unidade'] = str_replace( 'H1','Humaitá I', $item_key['cs_unidade']);						
+				$result->items[$n]['cs_unidade'] =  $item_key['cs_unidade'];		
+				break;	
+			  case 'H2':
+				$item_key['cs_unidade'] = str_replace( 'H2','Humaitá II', $item_key['cs_unidade']);						
+				$result->items[$n]['cs_unidade'] =  $item_key['cs_unidade'];		
+				break;	
+			  case 'N':
+				$item_key['cs_unidade'] = str_replace( 'N','Niterói', $item_key['cs_unidade']);						
+				$result->items[$n]['cs_unidade'] =  $item_key['cs_unidade'];		
+				break;	
+			  case 'R1':
+				$item_key['cs_unidade'] = str_replace( 'R1','Realengo I', $item_key['cs_unidade']);						
+				$result->items[$n]['cs_unidade'] =  $item_key['cs_unidade'];		
+				break;	
+			  case 'R2':
+				$item_key['cs_unidade'] = str_replace( 'R2','Realengo II', $item_key['cs_unidade']);						
+				$result->items[$n]['cs_unidade'] =  $item_key['cs_unidade'];		
+				break;					
+			  case 'S1':
+				$item_key['cs_unidade'] = str_replace( 'S1','São Cristóvão I', $item_key['cs_unidade']);						
+				$result->items[$n]['cs_unidade'] =  $item_key['cs_unidade'];		
+				break;			
+			  case 'S1':
+				$item_key['cs_unidade'] = str_replace( 'S1','São Cristóvão II', $item_key['cs_unidade']);						
+				$result->items[$n]['cs_unidade'] =  $item_key['cs_unidade'];		
+				break;	
+			  case 'S2':
+				$item_key['cs_unidade'] = str_replace( 'S2','São Cristóvão III', $item_key['cs_unidade']);						
+				$result->items[$n]['cs_unidade'] =  $item_key['cs_unidade'];		
+				break;	
+			  case 'T1':
+				$item_key['cs_unidade'] = str_replace( 'T1','Tijuca I', $item_key['cs_unidade']);						
+				$result->items[$n]['cs_unidade'] =  $item_key['cs_unidade'];		
+				break;	
+			  case 'T2':
+				$item_key['cs_unidade'] = str_replace( 'T2','Tijuca II', $item_key['cs_unidade']);						
+				$result->items[$n]['cs_unidade'] =  $item_key['cs_unidade'];		
+				break;				
+			  default:	
+			    $item_key['cs_unidade'] = 'Não Informado';
+				$result->items[$n]['cs_unidade'] =  $item_key['cs_unidade'];
+				break;			  
+			}
+			
+			$barra = "";
+			$cel1 = "";
+			$cel2 = ""; 
+			$cel3 = ""; 
+			$cel4 = "";
+			$obs  = $item_key['me_obs'];
+			
+			if (!empty($item_key['te_tel_cel_1'])){
+				
+			   if (!empty($item_key['me_obs'])) {
+				   $barra = " / ";
+			   }	
+			   $cel1 = $barra . "cel1: ". $item_key['te_tel_cel_1'];
+			}
+			
+			if (!empty($item_key['te_tel_cel_2'])){
+				
+				if ((!empty($item_key['me_obs']) or 
+				   (!empty($item_key['te_tel_cel_1']))
+ 				   )) {
+				   $barra = " / ";
+			    }	
+				$cel2 =  $barra . "cel2: " . $item_key['te_tel_cel_2'];
+			}
+			
+			if (!empty($item_key['te_tel_cel_3'])){
+				if  ((!empty($item_key['me_obs'])) or 
+				     (!empty($item_key['te_tel_cel_1'])) or
+ 				     (!empty($item_key['te_tel_cel_2']))
+				     ) {
+				   $barra = " / ";
+			    }	
+				$cel3 = $barra . "cel3: " . $item_key['te_tel_cel_3'];
+			}
+			
+			if (!empty($item_key['te_tel_cel_4'])){
+				if  ((!empty($item_key['me_obs'])) or 
+				     (!empty($item_key['te_tel_cel_1'])) or
+ 				     (!empty($item_key['te_tel_cel_2'])) or
+					 (!empty($item_key['te_tel_cel_3']))
+				     ) {
+				   $barra = " / ";
+			    }	
+				$cel4 = $barra . "cel4: " . $item_key['te_tel_cel_4'];
+			}
+			
+            $result->items[$n]['me_obs'] = $obs . $cel1 . $cel2 . $cel3 . $cel4;
+            
+			if ($interrompe) {
+				$result->items[$n]['te_complemento'] = $msg_erro;
+				drupal_set_message($msg_erro, 'erro');
+			}
+			$n++;
+		}
+
+    return($result);	
+}
+
+
+/* IMPORTAR ACOES FILIADO */
+// Importar do MALAO
+function cf_import_malao_importar_acoes_filiado($result,$arquivo,$interrompe, $msg_erro) {
+		
+		$n=0;
+		// Para cada filiado lido do arquivo CSV
+		foreach($result->items as $item_key) {
+
+            //dpm('--------- Lido -----------');
+			//dpm($item_key['nome_acao']);
+			//dpm($item_key['cpf_filiado']);
+			//dpm($item_key['nome_filiado']);	
+			//Obter o id da acao com base no Nome_Acao lido 
+            //mover o field_idacao para o filiado
+			$queryacao = new EntityFieldQuery();	
+			$acao = $queryacao->entityCondition('entity_type', 'node')
+			->entityCondition('bundle', 'acoes')
+			->propertyCondition('title', $item_key['nome_acao'])
+			->execute();
+			
+			if (!empty($acao)){
+				//dpm('--------- Acao encontrada -----------');
+				$result->items[$n]['nome_acao'] = array();
+				$participacoes = node_load_multiple(array_keys($acao['node']));
+				foreach ($participacoes as $participacao) { 
+					// encontrou a ação, move field_idacao para filiado
+					//dpm('mover field_idacao para filiado' );
+					//dpm($participacao->title);
+					//dpm($participacao->nid);
+					// Está movendo apenas a última ocorrencia
+					// Precisa adicionar um novo item novo no campo field_idacao do node 
+					
+					//OBTER O NODE DO FILIADO E CRIAR UM NOVO ITEM DE ACAO
+					
+					$queryfiliado = new EntityFieldQuery();	
+					$resultfiliado = $queryfiliado->entityCondition('entity_type', 'node')
+						->entityCondition('bundle', 'filiado')
+						->propertyCondition('title', $item_key['cpf_filiado'])
+						->execute();
+					//dpm('Encontra filiado');
+                    //dpm($item_key['cpf_filiado']);
+
+					if (!empty($resultfiliado)){
+						
+						$filiados = node_load_multiple(array_keys($resultfiliado['node']));
+						foreach ($filiados as $filiado) {
+							//dpm($filiado);
+							//dpm($filiado->field_idacao);
+						    $filiado->field_idacao['und'][$n]['target_id'] = $participacao->nid;
+							//dpm($filiado->field_idacao['und'][$n]['target_id']);
+							//dpm($filiado->field_idacao);
+                            node_save($filiado);	
+							//dpm($filiado->field['und'][$n]);
+							unset($item_key['nome_acao']);
+							unset($result->items[$n]['nome_acao']);							
+						}
+					}			
+				}
+			}
+	        $n++;
+		} 
+    return($result);
+}
+
+/*IMPORTAR ASSEMBLEIAS */
+// Importar do MALAO
+function cf_import_malao_importar_assembleias($result,$arquivo,$interrompe,$msg_erro) {
+	  
+	  $n = 0;
+      foreach($result->items as $item_key) {
+			
+		$hora = substr($item_key['hr_assembleia'], -8);  		  
+		$data = explode('/',str_replace(" 00:00:00","",$item_key['dt_assembleia']));
+		$data = $data[1] . '/' . $data[0] . '/' . $data[2]; 
+		$data = $data.' '.$hora;	
+		$item_key['dt_assembleia'] = $data;	
+		
+		//Our date string. The format is Y-m-d H:i:s
+		//$date_aux = '2019-04-01 10:32:00';
+
+		//Convert it into a Unix timestamp using strtotime.
+		$timestamp = strtotime($data);
+		//dpm($timestamp);
+		$result->items[$n]['titulo']        = $timestamp;
+		$result->items[$n]['dt_assembleia'] = $item_key['dt_assembleia']; 
+        
+		if ($interrompe) {
+			//força erro para não importar
+			$result->items[$n]['hr_assembleia'] = $msg_erro; 		
+		}
+		$n++;
+	  }
+	return($result);
+}
+
+/* IMPORTAR AÇÕES */
+// Importar do MALAO
+function cf_import_malao_importar_acoes($result,$interrompe,$msg_erro) {
+
+	  $n = 0;
+      foreach($result->items as $item_key) {
+		  
+		$data = explode('/',str_replace(" 00:00:00","",$item_key['dt_inicio']));
+		$data = $data[1] . '/' . $data[0] . '/' . $data[2]; 
+		$item_key['dt_inicio'] = $data;	
+		$result->items[$n]['dt_inicio'] = $item_key['dt_inicio']; 
+		if ($interrompe) {
+			//força erro para não importar
+			$result->items[$n]['nu_processo'] = $msg_erro; 
+			drupal_set_message($msg_erro, 'erro');			
+		}
+		$n++; 
+	  }
+    return($result);
+}

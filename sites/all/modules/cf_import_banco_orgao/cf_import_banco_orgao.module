@@ -1,0 +1,73 @@
+<?php
+function cf_import_banco_orgao_feeds_after_parse(FeedsSource $source, FeedsParserResult $result) {
+
+			$feedSource = feeds_source($source->id);			
+			$arquivo = $feedSource->config["FeedsFileFetcher"]["source"];    
+            $interrompe = FALSE;
+			$msg_erro = 'Nome do arquivo inválido!! O arquivo '. str_replace('private://feeds/','',$arquivo);
+			$msg_erro = $msg_erro .' possui nome incompatível com a importação sendo efetuada.';	
+   					
+			switch ($source->id) {
+			  case 'importar_orgaos':	
+					// SIAPENET-TABELA-ORGAO-UPAG - Copia	
+					if (!strpos($arquivo,'orgao-upag')) {
+					   $interrompe = TRUE;
+					}
+					cf_import_banco_orgao_importar_orgaos($result,$arquivo,$interrompe,$msg_erro);
+					break;					
+			  case 'importar_bancos':	
+					// bancos.csv	
+					
+					if (!strpos($arquivo,'bancos')) {
+					   $interrompe = TRUE;
+					}
+					cf_import_banco_orgao_importar_bancos($result,$arquivo,$interrompe,$msg_erro);
+					break;
+			  default:	
+				break;		  
+			}	
+	
+}
+
+/* IMPORTAÇÕES */
+/* IMPORTAR TABELA DE ORGAOS UPAG */
+function cf_import_banco_orgao_importar_orgaos($result,$arquivo,$interrompe,$msg_erro) {
+
+	  $n = 0;
+
+      foreach($result->items as $item_key) {
+        
+		$codigo_do_orgao        = substr ($item_key[0],1,5);
+		$empresa          		= substr ($item_key[0],6,40);
+		$cnpj             		= substr ($item_key[0],105,14);		
+		
+		//$linha = $codigo_do_orgao .' - '. $empresa. ' - '. $cnpj;
+		//dpm($linha);		
+		
+		$result->items[$n]['titulo']          = $codigo_do_orgao;			
+		$result->items[$n]['codigo_do_orgao'] = $codigo_do_orgao ;
+		$result->items[$n]['nome_orgao']   	  = $empresa ;					
+		$result->items[$n]['cnpj'] 		 	  = $cnpj;
+
+		if ($interrompe) {
+			$result->items[$n]['codigo_do_orgao'] = $msg_erro;
+			drupal_set_message($msg_erro, 'erro');
+		}
+        $n++;
+	  }
+    return($result);
+}
+/* IMPORTAR BANCOS */
+function cf_import_banco_orgao_importar_bancos($result,$arquivo,$interrompe,$msg_erro) {
+
+	  $n = 0;
+      foreach($result->items as $item_key) {
+
+		if ($interrompe) {
+			$result->items[$n]['cbc'] = $msg_erro;
+			drupal_set_message($msg_erro, 'erro');
+		}
+		$n++;
+	  }
+    return($result);
+}

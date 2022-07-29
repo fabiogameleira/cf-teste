@@ -1,0 +1,1579 @@
+<?php
+
+function my_module_webform_submission_presave($node, $submission) {
+	
+	if ($node->title == 'Consulta de CEP' ) {
+		$resposta = my_module_wsclient_cep($submission->data[1][0]);
+		if (is_object($resposta)) {
+			$msg = 'Endereço   : ' . $resposta->return->end ;
+			$msg = $msg .'<br>'.'Complemento: ' . $resposta->return->complemento2;
+			$msg = $msg .'<br>'.'Bairro     : ' . $resposta->return->bairro;
+			$msg = $msg .'<br>'.'Cidade     : ' . $resposta->return->cidade;
+			$msg = $msg .'<br>'.'Estado     : ' . $resposta->return->uf;
+			$msg = $msg .'<br>'.'CEP        : ' . $resposta->return->cep;
+			drupal_set_message($msg);
+		} 
+		else {
+			$msg = 'CEP inválido';
+			drupal_set_message($msg);
+		}
+		drupal_goto('consulta-de-cep');
+    }
+}
+
+/**
+* TROCA DE PAPEL
+* Ao trocar um usuário com conta pendente para filiado
+* atribui ao autor do filiado com o mesmo título/CPF o nome/cpf do usuario
+* permitindo o usuário passar a editar os dados cadastrais do filiado com o mesmo cpf.
+*/
+function my_module_user_presave(&$edit, $account, $category) {
+      
+   //Se não for uma conta nova
+    if (!$account->is_new) {
+	    // Se trocou de papel 'conta pendente' para papel 'filiado'
+		if ( isset($account->original->roles[10]) and isset($edit['roles'][7]) ) {
+			if ((strtolower($edit['roles'][7]) == 'filiado') and (strtolower($account->original->roles[10]) == 'conta pendente')) {
+					$queryfiliado = new EntityFieldQuery();	
+					$result = $queryfiliado->entityCondition('entity_type', 'node')
+					->entityCondition('bundle', 'filiado')
+					->propertyCondition('status', NODE_PUBLISHED)
+					->propertyCondition('title', $account->name)
+					->execute();
+
+					if (!empty($result)){
+						// Achou filiado com o mesmo cpf				
+						$filiados = node_load_multiple(array_keys($result['node']));	
+						foreach ($filiados as $filiado) { 
+							//Grava usuário como autor do filiado
+							$filiado->uid = $account->uid;
+							node_save($filiado);  
+							
+							/* ENVIA E-MAIL INFORMANDO ATIVAÇÃO DA CONTA DE FILIADO */
+							$tipoconta='Conta pendente para filiado';
+							$tipoconta_fim=taxonomy_get_term_by_name($tipoconta);
+							$termo = reset($tipoconta_fim);
+							$termoid = $termo->tid ;
+				            my_module_email_para_o_filiado($termoid,$account);
+  						    //$msg = 'Foi encaminhado e-mail para o filiado informando sobre a ativação da conta.';
+							//drupal_set_message($msg);
+						}
+					
+					}
+			}
+		}
+		// Se trocou de papel 'conta pendente' para papel 'não autorizado'
+		if ( isset($account->original->roles[10]) and isset($edit['roles'][13]) ) {
+			if ((strtolower($edit['roles'][13]) == 'não autorizado') and (strtolower($account->original->roles[10]) == 'conta pendente')) {
+				//exclui conta
+				$msg = 'Conta pendente -> não autorizado - A conta de usuário de ' .$account->field_nome_do_usuario['und'][0]['value']. ' CPF '.$account->name.' foi excluída';
+				my_module_exclui_usuario($msg,$account);
+			}
+		}
+	    // Se trocou de papel 'pendente' para papel 'filiado'
+		if ( isset($edit['roles'][7]) and isset($account->original->roles[8]) ) {
+			if ((strtolower($edit['roles'][7]) == 'filiado') and (strtolower($account->original->roles[8]) == 'pendente')) {			
+				
+				// Grava inclusão no consigsiape;
+				$comando = '4'; //Inclusão
+				$cpf = $account->name;
+				cf_consigsiape_grava_temporario($comando,$cpf);
+				
+				/* ENVIA E-MAIL INFORMANDO SOBRE FILIAÇÃO */
+				$tipoconta = 'Filiação pendente para filiado';
+				$tipoconta_fim =taxonomy_get_term_by_name($tipoconta);
+				$termo = reset($tipoconta_fim);
+			    $termoid = $termo->tid ;
+				my_module_email_para_o_filiado($termoid,$account);
+				//$msg = 'Foi encaminhado e-mail para o filiado informando sobre o aceite da filiação.';
+				//drupal_set_message($msg);
+			}
+		}
+	    // Se trocou de papel 'pendente' para papel 'não autorizado'
+		// Exclui conta
+		// Exclui ficha de filiação
+		if ( isset($edit['roles'][13]) and isset($account->original->roles[8]) ) {
+			if ((strtolower($edit['roles'][13]) == 'não autorizado') and (strtolower($account->original->roles[8]) == 'pendente')) {			
+				//exclui conta
+				$msg = 'Filiação Pendente -> não autorizado - A conta de usuário e a Ficha de filiação de ' .$account->field_nome_do_usuario['und'][0]['value']. ' CPF '.$account->name.' foram excluídas';
+				my_module_exclui_usuario($msg,$account);			
+
+				//exclui filiado
+				$queryfiliado = new EntityFieldQuery();	
+				$result = $queryfiliado->entityCondition('entity_type', 'node')
+				->entityCondition('bundle', 'filiado')
+				->propertyCondition('status', NODE_PUBLISHED)
+				->propertyCondition('title', $account->name)
+				->execute();
+
+				if (!empty($result)){
+					// Achou filiado com o mesmo cpf				
+					$filiados = node_load_multiple(array_keys($result['node']));	
+					foreach ($filiados as $filiado) { 
+						// Exclui filiado 
+						$msg = 'Filiação pendente -> não autorizado - A ficha de filiação de '.$filiado->field_nome['und'][0]['value'].' cpf '.$filiado->field_cpf['und'][0]['value']. ' foi excluída.';
+						drupal_set_message($msg);	
+						//node_delete($filiado->uid)						
+					}
+				}			
+
+			}
+		}
+
+    }	   
+    else { 
+		$i = 0;
+		$tam = count($account->roles) + 3;
+		$sem_filiado = false;
+		$papel_definido = false;
+		while ($i <= $tam ) {
+			   if (isset($account->roles[$i])){
+				   $papel = user_role_load($account->roles[$i]);
+				   if (intval($account->roles[$i]) > 1) {
+					  $papel_definido = true;
+				   }			   
+			   }
+			   $i++;
+	    }
+		if (!$papel_definido) {
+			//dpm('Setar sem filiado');
+			$account->roles[11] = 11;
+			$edit['roles'][11] = 11;		
+		}
+	}
+}
+
+function my_module_exclui_usuario($msg,$conta) {
+	//$msg = ('pendente -> não autorizado - A conta do usuário ' .$conta->field_nome_do_usuario['und'][0]['value']. ' CPF '.$conta->name.' foi excluída');
+	drupal_set_message($msg);
+	user_delete($conta->uid);
+}
+
+function my_module_email_para_o_filiado($termoid,$account) {
+
+	    $to = $account->mail;
+		$nome = $account->field_nome_do_usuario['und'][0]['value'];
+
+		// Obtem o texto do e-mail
+		$querymail = new EntityFieldQuery();	
+		$resultmail = $querymail->entityCondition('entity_type', 'node')
+		->entityCondition('bundle', 'email')
+		->propertyCondition('status', NODE_PUBLISHED)
+		->fieldCondition('field_tipo_de_email', 'tid', $termoid)
+		->execute(); 
+
+		if (!empty($resultmail)){
+			  $emails = node_load_multiple(array_keys($resultmail['node']));
+			  foreach ($emails as $mail) {
+				 $subject = $mail->title;
+				 $body = $mail->body['und'][0]['value'];
+				 $body = str_replace('Prezado(a),','Prezado(a) '.$nome. ',',$body);
+				 $envia = $mail->field_enviar['und'][0]['value'];
+			  }	
+			  // envia ==1 Sim
+			  if ($envia == 1 ) { 
+			     //$from = 'filiacao@sindscope.org.br';
+				 $from = variable_get('site_mail', '');
+				 simple_mail_send($from, $to, $subject, $body);
+			  }
+		} 
+}
+/* Remover elementos de user profile */
+function my_module_hide_userprofile($form_element, &$form_state) {
+  
+  $form_element['locale']['#access']=FALSE;
+  $form_element['timezone']['#access']=FALSE;
+   
+  return $form_element;
+}
+
+function my_module_form_alter(&$form, &$form_state, $form_id) {
+
+	if ($form_id == 'taxonomy_form_term') { 
+		  $form['#validate'][] = 'my_module_form_validate_taxonomia'; 
+	}
+
+	if ($form_id == 'filiado_node_form') { 
+		  $form['#validate'][] = 'my_module_form_validate_filiado'; 
+	}
+	
+	if ($form_id == 'user_profile_form') {
+		  global $user;
+		  
+		  if (!in_array('administrator', $user->roles)) {
+			 $form['#after_build'][] = 'my_module_hide_userprofile';
+		  }
+	}	
+
+	if ($form_id == 'user_profile_form') {
+		//$form['field_nome_do_usuario']['und'][0]['value']['#default_value'];
+		//dpm($form);
+		//$form['field_nome_do_usuario']['#access'] = false;
+		//$form['account']['name']['#access'] = false;
+	}
+
+	if ($form_id == 'views_form_usuarios_com_conta_pendente_page'){
+		unset($form['properties']['roles']['#options'][3]);
+		unset($form['properties']['roles']['#options'][5]);
+		unset($form['properties']['roles']['#options'][8]);		
+		unset($form['properties']['roles']['#options'][9]);
+		unset($form['properties']['roles']['#options'][10]);
+		unset($form['properties']['roles']['#options'][11]);
+		unset($form['properties']['roles']['#options'][12]);
+	}
+	if ($form_id == 'views_form_filiados_filiacao_pendente_page') {
+		//dpm($form);
+		//dpm($form['properties']['roles']['#options']);
+		unset($form['properties']['roles']['#options'][3]);
+		unset($form['properties']['roles']['#options'][5]);
+		unset($form['properties']['roles']['#options'][8]);		
+		unset($form['properties']['roles']['#options'][9]);
+		unset($form['properties']['roles']['#options'][10]);
+		unset($form['properties']['roles']['#options'][11]);
+		unset($form['properties']['roles']['#options'][12]);		
+		
+		/*
+		3  administrator
+		7  filiado
+		5  operador
+		8  pendente
+		9  coordenador
+		10  conta pendente
+		11  sem filiado
+		12  suporte
+		*/
+	}
+}
+
+/* Não permitir cadastrar uma taxonomia - Tabela - que já existe */
+function my_module_form_validate_taxonomia(&$form, &$form_state) {
+
+Global $user;  
+  
+  $acao = strtolower($form_state['triggering_element']['#value']);
+  $termo_informado = strtolower($form['name']['#value']);
+
+  switch ($acao) {
+	case 'salvar': 
+		$termo_encontrado = taxonomy_get_term_by_name($termo_informado);
+		$termo_encontrado = reset($termo_encontrado);
+
+		// Obtem o texto do termo
+		if (isset($termo_encontrado->name)) {
+		   //dpm($termo_encontrado->name);
+			$encontrado = $termo_encontrado->name;
+		} else {
+			$encontrado = '';
+		}
+		
+		if ($termo_informado == $encontrado) {
+		  $msg = 'Erro! '. $encontrado.' já está cadastrado.';
+		  form_set_error('Item', $msg ); 
+		}
+		break;
+	case 'apagar': 
+          // Só permite excluir se papel do usuário corrente 
+		  // for administrador ou suporte
+	      if (!array_search('administrator',$user->roles ) and !array_search('suporte',$user->roles )) { 
+		     $msg = 'Atenção! Para excluir um item da tabela, abra um ticket de suporte e solicite a um administrador.';
+		     form_set_error('Item', $msg ); 
+             break;
+		  }
+   }  
+}
+
+function my_module_form_user_register_form_alter(&$form, &$form_state, $form_id) {
+  $form['#validate'][] = 'my_module_validate_register_form';
+}
+
+
+function my_module_validate_register_form(&$form, &$form_state) {
+
+  global $user;
+  $field = 'name';
+  $value = $form_state['values']['name'];
+  $cpf_result = array();
+  
+  if (!in_array('administrator', $user->roles)) {	
+      
+	  if (is_numeric($value)) {
+		  $cpf_result = br_tax_number_cpf_validator($value);
+	  }
+	  else {
+		  $cpf_result['status'] = 0;
+		  $cpf_result['msg'] = 'Informe apenas números no CPF.';
+	  }
+	  
+	  if (!$cpf_result['status']) {
+		  $msg = $cpf_result['msg'];
+		  form_set_error($field, $msg );
+	  }
+  }	  
+}
+function my_module_form_validate_filiado($form, &$form_state) {
+	
+	$situacao_sindical = taxonomy_term_load($form['field_situacaofiliado']['und']['#value'][0]);
+	if (isset($situacao_sindical)) {
+		$situacao_sindical = $situacao_sindical->name;	
+	} else {
+		$situacao_sindical='';
+	}
+	if (isset($form['field_desligamento']['und'][0]['#value']['value']['date'])) {
+	    $desligamento = $form['field_desligamento']['und'][0]['#value']['value']['date'];
+		$desligamento = '';
+	}
+	// Situação sindical = Desfiliado
+	// Data de Desligamento obrigatoria
+	if ( (strtolower($situacao_sindical) == 'desfiliado') and empty($desligamento)) {
+       $msg = 'Erro! Data de desligamento tem que ser preenchida para situação sindical desfiliado.';
+	   form_set_error('	field_desligamento', $msg);  
+	}
+	if ( (strtolower($situacao_sindical) <> 'desfiliado') and !empty($desligamento)) {
+       $msg = 'Erro! Data de desligamento não pode estar preenchida para situação sindical diferente de desfiliado.';
+	   form_set_error('	field_desligamento', $msg);  
+	}
+	
+}
+
+function my_module_preenchefiliacao_contasemfiliado() {
+		//drupal_get_messages('Acesso não liberado');
+		$_GET['destination'] = 'node/add/filiado';
+		module_load_include('pages.inc', 'user');
+		//user_logout();
+		//drupal_goto('acesso-nao-liberado');
+}
+
+function my_module_filiado_pendente() {
+		drupal_get_messages('Acesso não liberado');
+		$_GET['destination'] = 'filiacao-pendente';
+		module_load_include('pages.inc', 'user');
+		//user_logout();
+		drupal_goto('acesso-nao-liberado');
+}
+
+function my_module_conta_pendente() {
+		drupal_get_messages('Acesso não liberado');
+		$_GET['destination'] = 'conta-pendente';
+		module_load_include('pages.inc', 'user');
+		drupal_goto('acesso-nao-liberado');
+		user_logout();
+}
+
+function my_module_user_login(&$edit, $account) {
+
+	//obtem o papel do usuário
+	// Conta nova é "sem filiado" - movido em rules 
+	// **** tratar sem filiado
+
+	//file_put_contents('drupal--debug-user_login.txt', print_r($_POST['form_id'], true));
+    
+	//dpm( $_POST['form_id'] );
+	if ( !isset($_POST['form_id']) || $_POST['form_id'] != 'user_pass_reset' || variable_get('login_destination_immediate_redirect', FALSE)) {
+
+		//$usuario = $account->uid;
+		if (array_search('pendente',$account->roles )) {
+			// verifica se o papel é pendente 
+			
+			// e se tem algum filiado com cpf igual ao usuário pendente
+			$queryfiliado = new EntityFieldQuery();	
+			$result = $queryfiliado->entityCondition('entity_type', 'node')
+				->entityCondition('bundle', 'filiado')
+				->propertyCondition('status', NODE_PUBLISHED)
+				->propertyCondition('title', $account->name)
+				->execute();
+
+			if (!empty($result)){
+				// O cadastro de filiados está pendente de aprovação
+				$filiados = node_load_multiple(array_keys($result['node']));
+				
+				foreach ($filiados as $filiado) { 
+					  $cpf = $filiado->field_cpf['und'][0]['value'];
+					if ($cpf == $account->name) {
+						
+						my_module_filiado_pendente(); 
+					}
+				}
+			}			
+		}
+
+		if (array_search('conta pendente',$account->roles )) {
+			my_module_conta_pendente();
+		}
+        
+		if (array_search('sem filiado',$account->roles )) {	
+			
+			
+			global $user;
+			
+			//file_put_contents('drupal--debug-user_insert.txt', print_r($account, true));
+			// Conta nova o usuário é sem filiado
+			// e se tem algum filiado com cpf igual ao usuário pendente
+			// seta pendente
+			$queryfiliado = new EntityFieldQuery();	
+			$result = $queryfiliado->entityCondition('entity_type', 'node')
+			->entityCondition('bundle', 'filiado')
+			->propertyCondition('status', NODE_PUBLISHED)
+			->propertyCondition('title', $account->name)
+			->execute();
+
+			if (!empty($result)){
+				// Achou filiado com o mesmo cpf			
+				$filiados = node_load_multiple(array_keys($result['node']));
+				
+				foreach ($filiados as $filiado) { 
+					  $cpf = $filiado->field_cpf['und'][0]['value'];
+					
+					//file_put_contents('drupal--debug-filiado-encontrado.txt', print_r($filiado, true));
+					
+					if ($cpf == $account->name) {
+						// Seta o Papel Pendente
+						
+						$role = user_role_load_by_name('conta pendente');
+						//$user->roles = $user->roles + array($role->rid => $role->name);
+						$user->roles = array($role->rid => $role->name);
+						user_save($user);
+						my_module_conta_pendente();
+					}
+				}
+			} else {
+				my_module_preenchefiliacao_contasemfiliado();
+			}
+			
+		}
+	    // Redireciona para home
+		$_GET['destination'] = '/';
+		module_load_include('pages.inc', 'user');	
+	}
+}
+ 
+function my_module_node_postupdate($node) {
+	
+	if ($node->type == 'filiado') {
+		
+		// Troca de situação sindical
+		
+		$tid_anterior = taxonomy_term_load($node->original->field_situacaofiliado['und'][0]['tid']);
+		$tid_novo = taxonomy_term_load($node->field_situacaofiliado['und'][0]['tid']);
+				
+		$situacaosindicalanterior = strtolower($tid_anterior->name);
+		$situacaosindicalnova = strtolower($tid_novo->name);
+		
+		if ($situacaosindicalanterior == 'filiado' and $situacaosindicalnova == 'desfiliado' ) {
+                
+				// Se tem comando de inclusão para competencia
+				// Exclui o comando de inclusão nao enviado
+				$siape = $node->field_siape['und'][0]['value'];
+				$comando = '4'; // inclusão
+				$mesano = date("Y-m-d H:i:s");
+				$envio = 0; 
+				cf_consigsiape_exclui_comandoexistente_consigsiape($siape,$comando,$mesano, $envio);
+				
+				//$comandoexistente = my_module_ver_comandoexistente_consigsiape($siape,$comando,$mesano, $envio);
+				//if ($comandoexistente) {
+					// Encontrou comando de inclusão nao enviado
+					// exclui comando de inclusão da competencia
+					//my_module_exclui_comandoexistente_consigsiape($siape,$comando,$mesano, $envio);
+				//}
+				// Grava comando de exclusão
+				$cpf = $node->field_cpf['und'][0]['value']; 
+				$comando = "3"; //exclusão
+				cf_consigsiape_grava_temporario($comando,$cpf);
+				
+				// Bloqueia a conta do filiado que foi desfiliado
+				$usuario = user_load($node->uid);
+				if ($usuario->name == $node->title) {
+					$account = $usuario->uid;
+					user_save($usuario, array('status' => 0));
+				}
+				
+				
+				
+		}
+		
+		if ($situacaosindicalanterior == 'desfiliado' and $situacaosindicalnova == 'filiado' ) {
+ 
+				$siape = $node->field_siape['und'][0]['value'];	
+				$mesano = date("Y-m-d H:i:s");				
+				//Se  o filiado (SIAPE) consta da base de consignação (D8)
+				//Se existir comando de exclusão pendente, excluir o comando de exclusão
+				//Se o filiado (SIAPE) não consta da base de consignação (D8)
+				
+				// Mudou de desfiliado para filiado
+				// Se existir comando de exclusão não enviado para mesma competência
+				// Então exclui comando de exclusão
+				$comando = '3'; // Exclusão
+				$envio = 0; // Comando não foi enviado 
+				cf_consigsiape_exclui_comandonaoenviado_consigsiape($siape,$comando,$mesano,$envio);				
+				
+				// Verifica se tem comando de inclusão para o mesmo siape
+				// na mesma competencia 
+				$comando = '4'; // inclusão
+				$envio = 0;
+				$comandoexistente = cf_consigsiape_ver_comandoexistente_consigsiape($siape,$comando,$mesano, $envio);
+				
+				if (!$comandoexistente) {
+					//Criar comando de inclusão.
+					//if (array_search('operador',$user->roles )) {
+						// Grava inclusão no consigsiape;
+						$cpf = $node->field_cpf['und'][0]['value'];
+						cf_consigsiape_grava_temporario($comando,$cpf);
+					//}
+				}
+				
+				// Desbloqueia a conta do filiado
+				$usuario = user_load($node->uid);
+				if ($usuario->name == $node->title) { 
+					$account = $usuario->uid;
+					user_save($usuario, array('status' => 1));
+				}	
+		}
+		
+    }
+}
+
+function my_module_node_postinsert($node) {
+	//watchdog('hook_post_action_test', "The inserted node {$node->type} id is {$node->nid} from " . __FUNCTION__);
+   //file_put_contents('drupal--debug.txt', print_r($node, true));
+	
+	if ($node->type =='filiado') {	
+		// file_put_contents('drupal--debug.txt', print_r($node, true));
+		$user = user_load($node->uid);	
+		
+		// Se ao inserir um filiado o papel do autor = sem filiado
+		// Seta pendente para o papel
+		// remove papel sem filiado
+		
+		if (array_search('sem filiado',$user->roles )) {	
+			$role = user_role_load_by_name('pendente');
+			$user->roles = array($role->rid => $role->name);
+			user_save($user);
+			my_module_filiado_pendente();
+		} else {
+		  // Acabou de inserir inserir um filiado, se foi criado por um operador	
+		  // grava temporário no config siape
+			if (array_search('operador',$user->roles )) {
+				//verifica comando repetido
+				$siape = $node->field_siape['und'][0]['value'];
+				$comando = '4'; // inclusão
+				$mesano = date("Y-m-d H:i:s");
+				//$envio = 0;
+				//$comandoexistente = my_module_ver_comandoexistente_consigsiape($siape,$comando,$mesano, $envio);
+				//$novocomando = 'siape:'.$siape .'|Comando:'.$comando.'|Mesano:'.$mesano.'|Repetido:'.$comandonaorepetido;
+				//file_put_contents('drupal--comandovalida.txt', print_r($novocomando, true));
+				//if (!$comandoexistente) {
+					// Grava inclusão no consigsiape;
+					$comando = '4'; //Inclusão
+					$cpf = $node->field_cpf['und'][0]['value'];
+					cf_consigsiape_grava_temporario($comando,$cpf);
+			    //}
+			}
+		  
+		}
+	}
+
+}
+ 
+/*
+$view = views_get_view(‘example_view’);
+$view->build($display_id);
+$view->query->limit = 0;
+$view->execute();
+$results = $view->result;
+*/
+/*
+  $view->pre_execute();
+    $view->execute();
+    return $view->result;
+*/
+/*
+$view = views_get_view($name);
+$view->pre_execute($args);
+$view->execute();
+$result => $view->result;
+*/
+
+/*
+ $filiado = views_get_view('obter_telefone_do_filiado');
+					  if (!empty($filiado)) {
+						  $filiado->set_display('page');
+						  $filiado->set_arguments(array($cpf));
+						  $filiado->set_items_per_page(1);
+						  $filiado->pre_execute();
+						  $filiado->execute();
+*/
+
+//function my_module_views_pre_execute(&$view) {
+	
+	//geratemporario
+	/*
+	if ($view->name ='temporario') {
+		//$preview = $view;
+		$preview = views_get_view('financeiro_pagamentos_do_filiado_novo');
+		//$preview->build($display_id);
+		$preview->set_display('page');
+		$preview->set_arguments(array($data));
+		$preview->query->limit = 0;
+		$preview->execute();
+		//$resultspre = $preview->result;
+		dpm('Fim');
+	}*/
+//}	
+
+/*formata mascara em telefones para exibir no 
+resultado da view*/
+function my_module_retorna_tel_com_mascara($tel, $tipo) {
+
+   switch ($tipo) {
+	case 'celular':  
+	    $tel = '('.substr($tel,0,2).')'.substr($tel,2,5).'-'.substr($tel,7,4) ;
+		break;
+	case 'fixo': 
+		$tel = '('.substr($tel,0,2).')'.substr($tel,2,4).'-'.substr($tel,6,4) ;
+        break;
+   }
+  return($tel);
+}
+
+function my_module_views_pre_render(&$view) {
+	
+	if ($view->name == 'filiados_eleicao_delegados' or 
+        $view->name == 'filiado-eleicao-delegados-pdf')	{
+		
+		    foreach ($view->result as $r => $result) {
+          	  
+			  $cpf = $result->field_field_cpf[0]['rendered']['#markup'];
+			  $nome = $result->field_field_nome[0]['rendered']['#markup'];
+			  $competencia ='';
+			  $val_rubrica ='';
+
+			  if (!empty($cpf)){
+				  $consignacao = views_get_view('obter_consignacao');
+				    if (!empty($consignacao)) {
+					  $consignacao->set_display('page');
+					  $consignacao->set_arguments(array($cpf));
+					  $consignacao->set_items_per_page(1);
+					  $consignacao->pre_execute();
+					  $consignacao->execute();
+					  $objects = $consignacao->result;
+					  if (!empty($objects)){
+						$competencia = $objects[0]->field_field_dt_competencia[0]['rendered']['#markup'];
+						$val_rubrica = $objects[0]->field_field_val_rubrica[0]['raw']['value'];
+					    $result->field_field_data_de_filiacao_2[0]['rendered']['#markup'] = $competencia .' '. $val_rubrica;
+
+					  } else {
+						// Não encontrou consignacao
+						//$result->field_field_data_de_filiacao_2[0]['rendered']['#markup'] = '*';
+						cf_geral_deleteFromArray($view->result, $result, FALSE);
+					  }
+				    }
+			    }
+      
+            }
+	
+	}
+	
+	if ($view->name == 'filiados_etiquetas') { 
+	    if ($view->current_display == 'pdf_2') {
+		foreach ($view->result as $r => $result) {
+			
+			if (isset($result->field_field_rua[0]['rendered']['#markup'])) {
+				$rua = $result->field_field_rua[0]['rendered']['#markup'];
+			} else {
+				$rua='';
+			}
+
+			if (isset($result->field_field_numero[0]['rendered']['#markup'])){
+				$numero = $result->field_field_numero[0]['rendered']['#markup'];
+			} else {
+				$numero='';
+			}
+			if (isset($result->field_field_complemento[0]['rendered']['#markup'])) {
+				$complemento = $result->field_field_complemento[0]['rendered']['#markup'];	
+			} else {
+				$complemento = '';
+			}
+		
+			$result->field_field_rua[0]['rendered']['#markup'] = $rua .', '. $numero .' '. $complemento;
+			
+			if (isset($result->field_field_bairro[0]['rendered']['#markup'])) {
+				$bairro = $result->field_field_bairro[0]['rendered']['#markup'];	
+			} else {
+				$bairro = '';
+			}
+			
+			if (isset($result->field_field_cidade[0]['rendered']['#markup'])) {
+				$cidade = $result->field_field_cidade[0]['rendered']['#markup'];	
+			} else {
+				$cidade = '';
+			}	
+			
+			if (isset($result->field_field_estado[0]['rendered']['#markup'])) {
+				$estado = $result->field_field_estado[0]['rendered']['#markup'];	
+			} else {
+				$estado = '';
+			}	
+					
+			$result->field_field_estado[0]['rendered']['#markup'] = $bairro .' - '. $cidade .' - '. $estado;
+
+			unset($result->field_field_numero[0]['rendered']['#markup']);  
+			unset($result->field_field_complemento[0]['rendered']['#markup']) ;	
+			unset($result->field_field_bairro[0]['rendered']['#markup']);  
+			unset($result->field_field_cidade[0]['rendered']['#markup']) ;	
+        }		
+	  }
+	}
+	
+	if (($view->name == 'filiados_nome_telefone') or
+		($view->name == 'filiados_recadastramento'))	{
+		// Criar mascara coluna telefone da view
+		foreach ($view->result as $r => $result) {
+			// Mascara para view - Telefone celular
+			if (isset($result->field_field_filiado_celular[0]['rendered']['#markup'])) {
+				if (!empty($result->field_field_filiado_celular[0]['rendered']['#markup'])){
+				   $tel = $result->field_field_filiado_celular[0]['rendered']['#markup'];				
+				   $result->field_field_filiado_celular[0]['rendered']['#markup'] = my_module_retorna_tel_com_mascara($tel, 'celular');
+				}
+			}
+			// Mascara para view - Telefone celular 2
+			if (isset($result->field_field_filiado_celular_2[0]['rendered']['#markup'])) {
+				if (!empty($result->field_field_filiado_celular_2[0]['rendered']['#markup'])){
+				   $tel = $result->field_field_filiado_celular_2[0]['rendered']['#markup'];				
+				   $result->field_field_filiado_celular_2[0]['rendered']['#markup'] = my_module_retorna_tel_com_mascara($tel, 'celular');
+				}
+			}
+			// Mascara para view - Telefone residencial
+			if (isset($result->field_field_filiado_residencial[0]['rendered']['#markup'])) {
+				if (!empty($result->field_field_filiado_residencial[0]['rendered']['#markup'])){
+				   $tel = $result->field_field_filiado_residencial[0]['rendered']['#markup'];				
+				   $result->field_field_filiado_residencial[0]['rendered']['#markup'] = my_module_retorna_tel_com_mascara($tel, 'fixo');
+				}
+			}
+			// Mascara para view - Telefone comercial
+			if (isset($result->field_field_filiado_comercial[0]['rendered']['#markup'])) {
+				if (!empty($result->field_field_filiado_comercial[0]['rendered']['#markup'])){
+				   $tel = $result->field_field_filiado_comercial[0]['rendered']['#markup'];				
+				   $result->field_field_filiado_comercial[0]['rendered']['#markup'] = my_module_retorna_tel_com_mascara($tel, 'fixo');
+				}
+			}			
+			
+		}
+	}
+	
+	if ($view->name == 'tratar_telefones') {
+		// Criar mascara coluna telefone da view
+		foreach ($view->result as $r => $result) {
+		    
+			if (!empty($result->field_field_filiado_celular[0]['rendered']['#markup'])){
+			     $tel_celular = $result->field_field_filiado_celular[0]['rendered']['#markup'];				
+			     $result->field_field_filiado_celular[0]['rendered']['#markup']= my_module_retorna_tel_com_mascara($tel_celular, 'celular');
+			}
+			if (!empty($result->field_field_filiado_celular_2[0]['rendered']['#markup'])){
+			     $tel_celular_2 = $result->field_field_filiado_celular_2[0]['rendered']['#markup'];				
+			     $result->field_field_filiado_celular_2[0]['rendered']['#markup'] = my_module_retorna_tel_com_mascara($tel_celular_2, 'celular');
+			}
+			if (!empty($result->field_field_filiado_residencial[0]['rendered']['#markup'])){
+               $tel_residencial = $result->field_field_filiado_residencial[0]['rendered']['#markup'];				
+			   $result->field_field_filiado_residencial[0]['rendered']['#markup'] = my_module_retorna_tel_com_mascara($tel_residencial, 'fixo');
+			}
+			if (!empty($result->field_field_filiado_comercial[0]['rendered']['#markup'])){
+               $tel_comercial = $result->field_field_filiado_comercial[0]['rendered']['#markup'];				
+			   $result->field_field_filiado_comercial[0]['rendered']['#markup'] = my_module_retorna_tel_com_mascara($tel_comercial, 'fixo');
+			}
+		}
+	}
+	
+	if ( ($view->name == 'aviso_ao_operador') and ($view->current_display == 'block')) {
+		// Exibe aviso de prazo de envio para o Serpro
+		// Hoje
+	     
+        //dpm($view->result[0]->field_field_data_hoje[0]['raw']['value']);		 
+		if (isset($view->result[0]->field_field_data_hoje[0]['raw']['value'])) {
+		   $hoje = $view->result[0]->field_field_data_hoje[0]['raw']['value'];
+		}
+		if (isset($hoje)) {
+			$dia =  substr($hoje,8,2); 
+			$mes =  substr($hoje,5,2);
+			$ano =  substr($hoje,0,4);
+			$hoje = $ano.$mes.$dia;
+		} else {
+			$dia =  substr(date('Ymd'),6,2); 
+			$mes =  substr(date('Ymd'),5,2);
+			$ano =  substr(date('Ymd'),0,4);
+            $hoje = $ano.$mes.$dia;
+		}
+		//dpm($hoje);
+		$msg = 'Consignações junto ao serpro';
+		$termo = taxonomy_get_term_by_name($msg);
+		$termo = reset($termo);
+		foreach ($view->result as $r => $result) {
+			$tipo = $result->field_field_tipo_msg[0]['rendered']['#markup'];
+			$ativado = $result->field_field_enviar[0]['rendered']['#markup'];
+			//$teste = $termo->name.'=='.$tipo.' | Ativo: '. $ativado;
+
+			if ($termo->name  == $tipo and $ativado == 'Sim') {
+				// $dia_inicial = field_dia_inicial
+				// $dia_final   = field_dia_final 
+				$dia_inicial = $result->field_field_dia_inicial[0]['rendered']['#markup'];
+				$dia_inicial = str_pad($dia_inicial,2,'0',STR_PAD_LEFT);
+				$dia_final = $result->field_field_dia_final[0]['rendered']['#markup'];
+				$dia_final = str_pad($dia_final,2,'0',STR_PAD_LEFT);
+				
+				// Trata virada de mes e ano
+				if ($mes == '12') {
+				   if ($dia > $dia_inicial) {
+						$mes_final = '01';
+						$mes_inicial = $mes;
+						$ano_final = $ano+1;
+                   } else {
+					 $mes_final  = $mes;	
+					 $mes_inicial = $mes -1; 
+					 $ano_final = $ano;	
+				   }
+				} else	{
+					if ($dia > $dia_final) {
+					  $mes_final = $mes+1;
+					  $mes_inicial = $mes;
+					} else {
+					  $mes_final  = $mes+1;	
+					  $mes_inicial = $mes-1;
+					}
+					$ano_final = $ano;			
+				}
+				
+				// Dia inicial 25/10
+				// Dia final   10/11
+				// Data de hoje 08/11
+				
+				// Se o dia de hoje > dia inicial e <= ao dia final
+				// Exibe a mensagem  
+				
+				// Preenche mes com zeros a esquerda
+				$mes_inicial = str_pad($mes_inicial,2,'0',STR_PAD_LEFT);
+				$mes_final = str_pad($mes_final,2,'0',STR_PAD_LEFT);
+
+				// Data inicial e final a ser testada
+				$data_inicial = $ano.$mes_inicial.$dia_inicial;
+				$data_final = $ano_final.$mes_final.$dia_final;
+
+				//$linha = 'hoje: '.$hoje. ' Exibir de '. $data_inicial . ' até '. $data_final;	
+				//dpm($linha);
+				
+				if (( $hoje < $data_inicial) or ($hoje > $data_final )) {
+					unset($view->result[$r]);
+				}
+			} else {
+				//dpm($teste);
+				unset($view->result[$r]);
+			}
+
+		}
+	}
+	//$contador = 0;
+	if ($view->name == 'filiados_sem_consignacao') {
+        
+		foreach ($view->result as $r => $result) {
+			$siape = $result->field_field_siape[0]['rendered']['#markup'];
+			//$nomecf = $result->field_field_nome[0]['rendered']['#markup'];
+			//$situacao_sindical = $result->field_field_situacaofiliado[0]['rendered']['#markup'];
+			// Para cada filiado
+			// Localiza último pagamento em consignacao
+			// Localiza em filiados o siape;
+			//$linha = $siape . ' : ' . $nomecf.' : '.$situacao_sindical;
+			//dpm($linha);
+			//dpm($result);
+			
+			$queryconsignacoes = new EntityFieldQuery();	
+			$consig = $queryconsignacoes->entityCondition('entity_type', 'node')
+				->entityCondition('bundle', 'consignacao')
+				->propertyCondition('status', NODE_PUBLISHED)
+				->fieldCondition('field_matricula_pen_ser', 'value', $siape, '=')
+				->fieldOrderBy('field_dt_competencia', 'value', 'ASC')
+				->execute();
+			if (!empty($consig)){
+				/* $consignacoes = node_load_multiple(array_keys($consig['node']));
+			    foreach ($consignacoes as $consignacao) {
+				  $siape_consignacao = $consignacao->field_matricula_pen_ser['und'][0]['value'];
+				  $competencia = $consignacao->field_dt_competencia['und'][0]['value'];
+				  $valor = $consignacao->field_val_rubrica['und'][0]['value'];
+				  $nome =  $consignacao->field_nome_da_pensionista['und'][0]['value'];
+				  $competencia = str_replace('-','',substr($competencia,0,7));
+				  $competencia = substr($competencia,4,2).'/'.substr($competencia,0,4);
+				  $result->field_field_data_de_filiacao[0]['rendered']['#markup'] = $competencia;
+				  $result->field_field_siape[0]['rendered']['#markup'] = $valor;
+				}*/
+				//unset($view->result[$r]);
+                cf_geral_deleteFromArray($view->result, $result, FALSE);
+			} else {
+				//$result->field_field_data_de_filiacao[0]['rendered']['#markup'] = 'Sem consignações';
+				//$contador = $contador + 1 ;
+				//$result->field_field_siape_1[0]['rendered']['#markup'] = $contador;
+				//$contador = $contador + 1 ;
+				//$result->field_field_title_1[0]['rendered']['#markup'] = $contador;
+				//$linha3 = $linha . ' | '.'Não existe consignação';
+				//dpm($linha3);				
+            }
+		}
+	}
+	
+	if ($view->name == 'filiados_do_cf_com_siape_diferente_no_d8') {
+		//dpm($view->result);
+		foreach ($view->result as $r => $result) {
+			$siape_cf = $result->field_data_field_siape_field_siape_value;
+			$siape_d8 = $result->field_idcpf_node__field_data_field_matricula_pen_ser_field_m;
+			if ($siape_cf == $siape_d8) {
+			   //dpm($siape_cf. '-'. $siape_d8);
+			   cf_geral_deleteFromArray($view->result, $result, FALSE);
+			}
+		}
+	}
+	
+	if ($view->name == 'filiados_que_nao_estao_no_siape') {
+
+		foreach ($view->result as $r => $result) {
+			$cpf   = $result->field_field_cpf[0]['rendered']['#markup'];
+			$siape = $result->field_field_siape[0]['rendered']['#markup'];
+			//$nome  = $result->field_field_nome[0]['rendered']['#markup'];
+
+			//Pesquisa siape no consignacao
+			$queryd8_siape = new EntityFieldQuery();	
+			$resultdd8_siape = $queryd8_siape->entityCondition('entity_type', 'node')
+					->entityCondition('bundle', 'consignacao')
+					->propertyCondition('status', NODE_PUBLISHED)
+					->fieldCondition('field_matricula_pen_ser', 'value', $siape, '=')
+					->execute();	
+			//dpm('1-sizeof($resultdd8_siape)='.sizeof($resultdd8_siape));					
+			if (sizeof($resultdd8_siape)>0) {
+				$temd8siape = true;
+				//$view->result[$r]->field_field_siape_1[0]['rendered']['#markup'] = 'Sim';
+			} else {
+				$temd8siape = false;
+				$result->field_field_siape_1[0]['rendered']['#markup'] = 'Não'; 
+			}
+			
+			//Pesquisa cpf no consignacao
+			$queryd8_cpf = new EntityFieldQuery();	
+			$resultdd8_cpf = $queryd8_cpf->entityCondition('entity_type', 'node')
+					->entityCondition('bundle', 'consignacao')
+					->propertyCondition('status', NODE_PUBLISHED)
+					->fieldCondition('field_cpf', 'value', $cpf, '=')
+					->execute();
+			//dpm('2-sizeof($resultdd8_cpf)='.sizeof($resultdd8_cpf));
+			if (sizeof($resultdd8_cpf) > 0) {
+				$temd8cpf = true;
+				//$view->result[$r]->field_field_cpf_1[0]['rendered']['#markup'] = 'Sim';
+			} else {
+				$temd8cpf = false;
+				$result->field_field_cpf_1[0]['rendered']['#markup'] = 'Não';
+			}
+			
+			//Pesquisa siape no rubricas excluidas
+			$queryexc_siape = new EntityFieldQuery();	
+			$resultdexc_siape = $queryexc_siape->entityCondition('entity_type', 'node')
+					->entityCondition('bundle', 'rubricas_excluidas')
+					->propertyCondition('status', NODE_PUBLISHED)
+					->fieldCondition('field_exc_matricula_serv_inst', 'value', $siape, '=')
+					->execute();
+			//dpm('3-sizeof($resultdexc_siape)=' . sizeof($resultdexc_siape))	;	
+			if (sizeof($resultdexc_siape) > 0) {
+				$temexcsiape = true;
+				//$view->result[$r]->field_field_siape_2[0]['rendered']['#markup'] = 'Sim'; 
+			} else {
+				$temexcsiape = false;	
+				$result->field_field_siape_2[0]['rendered']['#markup'] = 'Não'; 
+			}
+			//Pesquisa cpf no rubricas excluidas
+			$queryexc_cpf = new EntityFieldQuery();	
+			$resultdexc_cpf = $queryexc_cpf->entityCondition('entity_type', 'node')
+					->entityCondition('bundle', 'rubricas_excluidas')
+					->propertyCondition('status', NODE_PUBLISHED)
+					->fieldCondition('field_exc_cpf', 'value', $cpf, '=')
+					->execute();
+			//dpm('4-sizeof($resultdexc_cpf='.sizeof($resultdexc_cpf));			
+			if (sizeof($resultdexc_cpf)> 0){
+				$temexccpf = true;
+				//$view->result[$r]->field_field_cpf_2[0]['rendered']['#markup'] = 'Sim';
+			} else {
+				$temexccpf = false;
+				$result->field_field_cpf_2[0]['rendered']['#markup'] = 'Não'; 
+			}
+			
+			if ($temd8siape 	or 
+				$temd8cpf  		or 
+				$temexcsiape  	or 
+				$temexccpf )
+				{
+				$result->field_field_siape_1[0]['rendered']['#markup'] = 'Sim';	
+				$result->field_field_cpf_1[0]['rendered']['#markup'] = 'Sim';
+				$result->field_field_siape_2[0]['rendered']['#markup'] = 'Sim'; 
+				$result->field_field_cpf_2[0]['rendered']['#markup'] = 'Sim';
+				
+				//dpm(sizeof($view->result));
+				
+				cf_geral_deleteFromArray($view->result, $result, FALSE);
+				
+				//dpm(sizeof($view->result));
+				
+				//unset($view->result[$r]);
+				
+				//dpm(sizeof($result));
+				//my_module_deleteFromArray($view->result, $result, FALSE);
+				//$view->result = $filteredResults;
+				//$view->total_rows = count($filteredResults);
+				}
+		}
+	}
+
+	if ($view->name == 'arquivos_siape_carregados') {
+	    
+		foreach ($view->result as $r => $result) {
+		
+		$arquivo = $result->field_field_arquivo_importado[0]['rendered']['#markup'];
+	    $pos = strpos($arquivo,('_'));
+		$arquivo = substr($arquivo,$pos+1,strlen($arquivo)-$pos);
+		
+		//dpm($arquivo);
+		
+		if (strstr($arquivo, 'consigpensionista')) {
+		   $titulo = 'consigpensionista';
+		}
+		
+		if (strstr($arquivo, 'consigservidor')) {
+		   $titulo = 'consigservidor';
+		}
+		 
+		if (strstr($arquivo, 'rubrexclpensionista')) {
+		    $titulo = 'rubrexclpensionista';
+		}
+		if (strstr($arquivo, 'rubrexclservidor')) {
+		   $titulo = 'rubrexclservidor';
+		}
+		 $result->field_field_arquivo_importado_1[0]['rendered']['#markup'] = $titulo;
+       }
+	}	
+	
+  if (($view->name == 'usuarios_com_conta_pendente')|| ($view->current_display == 'page' )) {
+	  // Obter o telefone celular do filiado para exibir
+	  // na consulta de conta pendente
+	  
+	  if (isset($view->result[0]->users_name)) {
+
+			  foreach($view->result as $r => &$result) {
+				  $telefone = '';
+
+				  $cpf = $result->users_name;
+				  if (!empty($cpf)){
+					  $filiado = views_get_view('obter_telefone_do_filiado');
+					  if (!empty($filiado)) {
+						  $filiado->set_display('page');
+						  $filiado->set_arguments(array($cpf));
+						  $filiado->set_items_per_page(1);
+						  $filiado->pre_execute();
+						  $filiado->execute();
+						  $telefone = trim(strip_tags ($filiado->render()));
+						  if (!empty($telefone)) {
+						    $telefone = my_module_retorna_tel_com_mascara($telefone, 'celular');
+					      }
+						  $result->field_field_nome_do_usuario_1[0]['rendered']['#markup'] = $telefone;
+					  }
+				  }
+			  }            
+	  }		  
+  }
+  /*
+  if ($view->name == 'estatistica_por_faixa_etaria') {
+	  $i = 0;
+	  $n = 0 ;
+	  $n20 = 0;
+	  $n30 = 0;
+	  $n40 = 0;
+	  $n50 = 0;
+	  $n60 = 0;
+	  $n70 = 0;
+	  $n80 = 0;
+	  $n90 = 0;
+	  $nerro = 0;
+	  $idade = 0;
+      $linha = '';
+	  $situacao ='';
+	  $sexo = '';
+	  $calc = array();
+	  $quebra = 0;
+	  
+	  foreach($view->result as $r => &$result) {
+		  
+		if (isset($result->field_field_data_de_nascimento[0]['rendered']['#markup'])) {
+			$idade = strip_tags($result->field_field_data_de_nascimento[0]['rendered']['#markup']);
+			$idade = str_replace(' anos','',$idade);
+		}
+		
+		if (!empty($idade)) {
+			$idade = intval($idade/10).'0';
+			$idade = $idade;
+        } else	{				
+		   $idade = 0;
+		} 
+
+		//$result->field_field_data_de_nascimento[0]['rendered']['#markup'] = $idade;
+		
+		if ($i > 0) {
+			if (isset($result->field_field_situacaofiliado[0]['rendered']['#markup']))
+			{
+				$situacao_aux = $result->field_field_situacaofiliado[0]['rendered']['#markup'];
+			} else {
+				$situacao_aux = '';
+			}	
+           if ($situacao == $situacao_aux) {
+			   if (isset($result->field_field_sexo[0]['rendered']['#markup']))
+				{
+					$sexo_aux = $result->field_field_sexo[0]['rendered']['#markup'];
+				} else {
+					$sexo_aux = '';
+				}		
+			   if ($sexo == $sexo_aux) {
+					$i = $i - 1;		
+					if (isset($result->field_field_situacaofiliado[0]['rendered']['#markup'])) {
+						$calc[$i]['situacao'] = $result->field_field_situacaofiliado[0]['rendered']['#markup'];
+					} else {
+						$calc[$i]['situacao'] = '';
+					}
+                    if (isset($result->field_field_sexo[0]['rendered']['#markup'])) {
+						$calc[$i]['sexo'] = $result->field_field_sexo[0]['rendered']['#markup'];
+					} else {
+						$calc[$i]['sexo'] = '';
+					}
+					$calc[$i]['Até 20'] = $n20;      
+					$calc[$i]['Até 30'] = $n30;		
+					$calc[$i]['Até 40'] = $n40;        
+					$calc[$i]['Até 50'] = $n50;
+					$calc[$i]['Até 60'] = $n60;
+					$calc[$i]['Até 70'] = $n70; 	
+					$calc[$i]['Até 80'] = $n80;
+					$calc[$i]['Até 90'] = $n90;
+					$calc[$i]['Erro']   = $nerro;				
+			   }
+			   else {
+
+				//dpm('--- quebra sexo ---');
+				if (isset($result->field_field_situacaofiliado[0]['rendered']['#markup'])) {
+					$calc[$i]['situacao'] = $result->field_field_situacaofiliado[0]['rendered']['#markup'];
+				} else {
+					$calc[$i]['situacao'] = '';
+				}
+				if (isset($result->field_field_sexo[0]['rendered']['#markup'])) {
+					$calc[$i]['sexo'] = $result->field_field_sexo[0]['rendered']['#markup'];
+				} else {
+					$calc[$i]['sexo'] = '';
+				}
+				
+				$calc[$i]['Até 20'] = 0;      
+				$calc[$i]['Até 30'] = 0;		
+				$calc[$i]['Até 40'] = 0;        
+				$calc[$i]['Até 50'] = 0;
+				$calc[$i]['Até 60'] = 0;
+				$calc[$i]['Até 70'] = 0; 	
+				$calc[$i]['Até 80'] = 0;
+				$calc[$i]['Até 90'] = 0;
+				$calc[$i]['Erro']   = 0;
+				$n20 = 0; $n30 = 0; $n40 = 0; $n50 = 0; 
+				$n60 = 0; $n70 = 0; $n80 = 0; $n90 = 0; 
+				$nerro = 0;
+				
+			   }
+           } else { 
+
+		        //dpm('--- quebra situação ---');
+				if (isset($result->field_field_situacaofiliado[0]['rendered']['#markup'])) {
+					$calc[$i]['situacao'] = $result->field_field_situacaofiliado[0]['rendered']['#markup'];
+				} else {
+					$calc[$i]['situacao'] = '';
+				}
+				if (isset($result->field_field_sexo[0]['rendered']['#markup'])) {
+					$calc[$i]['sexo'] = $result->field_field_sexo[0]['rendered']['#markup'];
+				} else {
+					$calc[$i]['sexo'] = '';
+				}
+
+				$calc[$i]['Até 20'] = 0;      
+				$calc[$i]['Até 30'] = 0;		
+				$calc[$i]['Até 40'] = 0;        
+				$calc[$i]['Até 50'] = 0;
+				$calc[$i]['Até 60'] = 0;
+				$calc[$i]['Até 70'] = 0; 	
+				$calc[$i]['Até 80'] = 0;
+				$calc[$i]['Até 90'] = 0;
+				$calc[$i]['Erro']   = 0;
+				$n20 = 0; $n30 = 0; $n40 = 0; $n50 = 0; 
+				$n60 = 0; $n70 = 0; $n80 = 0; $n90 = 0; 
+				$nerro = 0;
+		   }
+		} else {
+			//dpm('---Início---');
+			if (isset($result->field_field_situacaofiliado[0]['rendered']['#markup'])) {
+				$calc[$i]['situacao'] = $result->field_field_situacaofiliado[0]['rendered']['#markup'];
+			} else {
+				$calc[$i]['situacao'] = '';
+			}
+			if (isset($result->field_field_sexo[0]['rendered']['#markup'])) {
+				$calc[$i]['sexo'] = $result->field_field_sexo[0]['rendered']['#markup'];
+			} else {
+				$calc[$i]['sexo'] = '';
+			}
+			$calc[$i]['Até 20'] = 0;      
+			$calc[$i]['Até 30'] = 0;		
+			$calc[$i]['Até 40'] = 0;        
+			$calc[$i]['Até 50'] = 0;
+			$calc[$i]['Até 60'] = 0;
+			$calc[$i]['Até 70'] = 0; 	
+			$calc[$i]['Até 80'] = 0;
+			$calc[$i]['Até 90'] = 0;
+			$calc[$i]['Erro']   = 0;			
+		}
+		
+		switch ($idade) {
+		  case 20:       
+            $n20 = $n20 + 1	;	  
+		    $calc[$i]['Até 20'] = $n20;      
+			break;
+		  case 30:
+		    $n30 = $n30 + 1;	
+		    $calc[$i]['Até 30'] = $n30; 	
+			break;
+		  case 40:
+		  	$n40 = $n40 + 1;
+		    $calc[$i]['Até 40'] = $n40; 			
+			break;
+		  case 50:
+		  	$n50 = $n50 + 1;
+		    $calc[$i]['Até 50'] = $n50; 			
+			break;
+		  case 60:
+		  	$n60 = $n60 + 1;
+		    $calc[$i]['Até 60'] = $n60; 			
+			break;	
+		  case 70:
+		    $n70 = $n70 + 1;
+		    $calc[$i]['Até 70'] = $n70; 
+			break;	
+		  case 80:
+		  	$n80 = $n80 + 1;
+			$calc[$i]['Até 80'] = $n80;				
+			break;	
+		  case 90:
+		  	$n90 = $n90 + 1;
+			$calc[$i]['Até 90'] = $n90; 
+			break;	
+          default:	
+		    $nerro = $nerro + 1;
+		    $calc[$i]['Erro'] = $nerro;
+			break;		  
+		}
+		$situacao = $calc[$i]['situacao'];
+		$sexo = $calc[$i]['sexo'];
+		$i = $i + 1;
+
+      }
+	  //dpm($linha);
+	  $i = 0;
+      $tamCalc = sizeof($calc);
+	  $total = 0;	
+
+      
+	  //Preenche result com conteúdo do array agrupado.
+	  foreach($view->result as $r => &$result) {
+		
+		if (isset($calc[$i]['situacao'])){
+			$result->field_field_situacaofiliado[0]['rendered']['#markup'] = $calc[$i]['situacao'];
+		} else {
+			$calc[$i]['situacao'] = '';
+			$result->field_field_situacaofiliado[0]['rendered']['#markup'] = $calc[$i]['situacao'];
+		}
+		if (isset($calc[$i]['sexo'])) {
+			$result->field_field_sexo[0]['rendered']['#markup'] = $calc[$i]['sexo'] ;
+		} else {
+			$calc[$i]['sexo']='';
+			$result->field_field_sexo[0]['rendered']['#markup'] = $calc[$i]['sexo'] ;
+		}
+		if (isset($calc[$i]['Até 20'])) {		
+			$result->field_field_data_de_nascimento[0]['rendered']['#markup']  = $calc[$i]['Até 20'];
+        } else {
+			$calc[$i]['Até 20'] = 0;
+			$result->field_field_data_de_nascimento[0]['rendered']['#markup']  = $calc[$i]['Até 20'];
+		}
+		if (isset($calc[$i]['Até 30'])) {			
+ 			$result->field_field_data_de_nascimento_1[0]['rendered']['#markup'] = $calc[$i]['Até 30'];	
+		} else {
+			$calc[$i]['Até 30'] = 0;
+			$result->field_field_data_de_nascimento_1[0]['rendered']['#markup'] = $calc[$i]['Até 30'];	
+		}
+		if (isset($calc[$i]['Até 40'])) {			
+			$result->field_field_data_de_nascimento_2[0]['rendered']['#markup'] = $calc[$i]['Até 40'];
+        } else {
+			$calc[$i]['Até 40'] = 0;
+			$result->field_field_data_de_nascimento_2[0]['rendered']['#markup'] = $calc[$i]['Até 40'];
+		}
+		if (isset($calc[$i]['Até 50'])) {	
+			$result->field_field_data_de_nascimento_3[0]['rendered']['#markup'] = $calc[$i]['Até 50'];
+        } else {
+			$calc[$i]['Até 50']	= 0;		
+			$result->field_field_data_de_nascimento_3[0]['rendered']['#markup'] = $calc[$i]['Até 50'];			
+		}
+		if (isset($calc[$i]['Até 60'])) {			
+			$result->field_field_data_de_nascimento_4[0]['rendered']['#markup'] = $calc[$i]['Até 60'];
+		} else {
+			$calc[$i]['Até 60'] = 0;
+			$result->field_field_data_de_nascimento_4[0]['rendered']['#markup'] = $calc[$i]['Até 60'];			
+		}
+		if (isset($calc[$i]['Até 70'])) {			
+			$result->field_field_data_de_nascimento_5[0]['rendered']['#markup'] = $calc[$i]['Até 70'];
+		} else {
+			$calc[$i]['Até 70'] = 0;
+			$result->field_field_data_de_nascimento_5[0]['rendered']['#markup'] = $calc[$i]['Até 70'];			
+		}
+		if (isset($calc[$i]['Até 80'])) {			
+			$result->field_field_data_de_nascimento_6[0]['rendered']['#markup'] = $calc[$i]['Até 80'];
+		} else {
+			$calc[$i]['Até 80'] = 0;
+			$result->field_field_data_de_nascimento_6[0]['rendered']['#markup'] = $calc[$i]['Até 80'];
+		}
+		if (isset($calc[$i]['Até 90'])) {			
+			$result->field_field_data_de_nascimento_7[0]['rendered']['#markup'] = $calc[$i]['Até 90'];
+		} else {
+			$calc[$i]['Até 90'] = 0;			
+			$result->field_field_data_de_nascimento_7[0]['rendered']['#markup'] = $calc[$i]['Até 90'];			
+		}
+		if (isset($calc[$i]['Erro'])) {	
+			$result->field_field_data_de_nascimento_8[0]['rendered']['#markup'] = $calc[$i]['Erro'];
+		} else {
+			$calc[$i]['Erro'] = 0;
+			$result->field_field_data_de_nascimento_8[0]['rendered']['#markup'] = $calc[$i]['Erro'];
+		}
+					
+		$total = $calc[$i]['Até 20'] + $calc[$i]['Até 30'] + $calc[$i]['Até 40'] + $calc[$i]['Até 50'] + $calc[$i]['Até 60'];
+		$total = $total + $calc[$i]['Até 70'] + $calc[$i]['Até 80']+ $calc[$i]['Até 90'] + $calc[$i]['Erro'];
+		$result->field_field_data_de_nascimento_9[0]['rendered']['#markup'] = $total;
+
+		if ( $i < ($tamCalc) ) {
+			$i = $i + 1 ;	
+		}
+		else {	
+		 // Elimina results não usados.
+		   $i = $i + 1 ;
+           unset($view->result[$r]);
+		}
+		
+	  }
+
+  }*/
+	
+}
+/* Criado para retirar zeros do início do celular*/
+function my_module_removezeroinicial_dos_telefones(&$telefone) {
+	
+	if (substr($telefone, 0, 1) == '0' ) {
+		$telefone = substr($telefone, 1);
+	}		
+}
+
+function my_module_insere_digito_telefones_antigos(&$telefone,$tipo) {
+	
+	switch ($tipo) {
+		case 'fixo':
+			if (strlen($telefone) == 9) {
+			   $prefixo =substr($telefone,0,2);
+			   $base = substr($telefone,2,1).substr($telefone,2);
+			   $telefone = $prefixo.$base;			   
+			}
+			break;			   
+		case 'celular':
+			if (strlen($telefone) == 10) {
+			   $prefixo =substr($telefone,0,2);
+			   $base = '9'.substr($telefone,2);
+			   $telefone = $prefixo.$base;			   
+			}
+			break;
+	}
+
+}
+
+function my_module_node_presave($node) {
+ 
+	if  ($node->type == 'filiado') {
+        
+		// AJUSTA TELEFONES (ZERO E PRIMEIRO DÍGITO)
+		
+		if (isset($node->field_tel_cel['und'][0]['value'])) {
+			$node->field_filiado_celular['und'][0]['value']	   = $node->field_tel_cel['und'][0]['value'];
+			my_module_removezeroinicial_dos_telefones($node->field_filiado_celular['und'][0]['value']);		
+			my_module_insere_digito_telefones_antigos($node->field_filiado_celular['und'][0]['value'],'celular');
+		}
+		if (isset($node->field_tel_cel_2['und'][0]['value'])) {
+			$node->field_filiado_celular_2['und'][0]['value']  = $node->field_tel_cel_2['und'][0]['value'];
+			my_module_removezeroinicial_dos_telefones($node->field_filiado_celular_2['und'][0]['value']);		
+			my_module_insere_digito_telefones_antigos($node->field_filiado_celular_2['und'][0]['value'],'celular');	    
+		}
+		if (isset($node->field_tel_res['und'][0]['value'])) {
+			$node->field_filiado_residencial['und'][0]['value'] = $node->field_tel_res['und'][0]['value'];
+			my_module_removezeroinicial_dos_telefones($node->field_filiado_residencial['und'][0]['value']);		
+			my_module_insere_digito_telefones_antigos($node->field_filiado_residencial['und'][0]['value'],'fixo');
+		}   
+		if (isset($node->field_tel_com['und'][0]['value'])) {
+			$node->field_filiado_comercial['und'][0]['value']   = $node->field_tel_com['und'][0]['value'];
+			my_module_removezeroinicial_dos_telefones($node->field_filiado_comercial['und'][0]['value']);		
+			my_module_insere_digito_telefones_antigos($node->field_filiado_comercial['und'][0]['value'],'fixo');
+		}
+	    
+        // ATRIBUI RECADASTRAMENTO COM BASE NA MUDANÇA
+		// DE CAMPOS DA FICHA DE FILAIÇÃO
+		$recadastra = 0;
+		
+		if (isset($node->original->field_rua['und'][0]['value'])) {
+			If ($node->field_rua['und'][0]['value'] != $node->original->field_rua['und'][0]['value']) {
+			$recadastra = $recadastra + 1;
+			}		
+		}
+		if (isset($node->original->field_numero['und'][0]['value']))	{
+			if ($node->field_numero['und'][0]['value'] != $node->original->field_numero['und'][0]['value']) {
+				$recadastra = $recadastra + 1;
+			}
+		}
+		if (isset($node->field_complemento['und'][0]['value'])){
+			if ($node->field_complemento['und'][0]['value'] != $node->original->field_complemento['und'][0]['value']) {
+				$recadastra = $recadastra + 1;
+			}		
+		}
+		if (isset($node->original->field_bairro['und'][0]['value'])){
+			if ($node->field_bairro['und'][0]['value'] != $node->original->field_bairro['und'][0]['value']) {
+				$recadastra = $recadastra + 1;
+			}
+		}
+		if (isset($node->original->field_cidade['und'][0]['value'])){
+			if ($node->field_cidade['und'][0]['value'] != $node->original->field_cidade['und'][0]['value']) {
+				$recadastra = $recadastra + 1;
+			}
+		}
+		if (isset($node->original->field_estado['und'][0]['value'])){
+			if ($node->field_estado['und'][0]['value'] != $node->original->field_estado['und'][0]['value']) {
+				$recadastra = $recadastra + 1;
+			}
+		}
+		if (isset($node->original->field_cep['und'][0]['value'])){
+			if ($node->field_cep['und'][0]['value']    != $node->original->field_cep['und'][0]['value']) {
+				$recadastra = $recadastra + 1;
+			}
+		}
+		/*
+		if (isset($node->field_tel_cel['und'][0]['value'])){
+			if ($node->field_tel_cel['und'][0]['value'] != $node->original->field_tel_cel['und'][0]['value']){
+				$recadastra = $recadastra + 1;
+			}
+		}
+		
+		if (isset($node->field_tel_res['und'][0]['value'])) {
+			if ($node->field_tel_res['und'][0]['value']     != $node->original->field_tel_res['und'][0]['value']) {
+				$recadastra = $recadastra + 1;
+			}
+		}*/
+		if (isset($node->original->field_filiado_celular['und'][0]['value'])) {
+			if ($node->field_filiado_celular['und'][0]['value'] != $node->original->field_filiado_celular['und'][0]['value']){
+				$recadastra = $recadastra + 1;
+			}
+		}
+		if (isset($node->original->field_filiado_residencial['und'][0]['value'])){
+			if ($node->field_filiado_residencial['und'][0]['value']!= $node->original->field_filiado_residencial['und'][0]['value']) {
+				$recadastra = $recadastra + 1;
+			}
+		}
+		
+		if ($recadastra >= 3) {
+			$node->field_recadastrado['und'][0]['value'] = 1;
+			$node->field_responsavel_recadastra['und'][0]['value'] = 'Automático';			
+		}		
+	}
+}
+
+
+/**
+ * Implements hook_field_attach_view_alter().
+ *
+ * Show titles of empty fields.
+
+function my_module_field_attach_view_alter(&$output, $context) {
+  // We proceed only on nodes.
+  
+  if ($context['entity_type'] != 'node' || $context['view_mode'] != 'full'	) {
+    return;
+  }
+ 
+  $node = $context['entity'];
+  // Load all instances of the fields for the node.
+  $instances = _field_invoke_get_instances('node', $node->type, array('default' => TRUE, 'deleted' => FALSE));
+ 
+  foreach ($instances as $field_name => $instance) {
+    // Set content for fields they are empty.
+    if (empty($node->{$field_name})) {
+      $display = field_get_display($instance, 'full', $node);
+      // Do not add field that is hidden in current display.
+      if ($display['type'] == 'hidden') {
+        continue;
+      }
+      // Load field settings.
+      $field = field_info_field($field_name);
+      // Set output for field.
+      $output[$field_name] = array(
+        '#theme' => 'field',
+        '#title' => $instance['label'],
+        '#label_display' => 'above',
+        '#field_type' => $field['type'],
+        '#field_name' => $field_name,
+        '#bundle' => $node->type,
+        '#object' => $node,
+        '#items' => array(),
+        '#entity_type' => 'node',
+        '#weight' => $display['weight'],
+        0 => array('#markup' => '&nbsp;'),
+      );
+    }
+  }
+}
+ */
+
+/* CORRIGIR EXIBIÇÃO DA EDIÇÃO DO CAMPO LABEL EM CAMPO ENTITY REFERENCE. */
+function my_module_entityreference_view_widget_rows_alter(&$rows, $entities, $settings) {
+	
+    //dpm($settings->entityreference_label);
+	foreach (element_children($rows) as $key => $child) {
+		
+		if ($rows[$key]['target_id']['#type'] == 'checkbox') {
+		  $rows[$key]['target_id']['#title'] = $rows[$key]['target_id']['#field_suffix'];
+		  // Correção de bug
+		  // Não estava associando for com id em filiados
+		  // TIve que ajustar o id inserindo o '-target-id' no final.
+		  $rows[$key]['target_id']['#attributes']['id'] = $rows[$key]['target_id']['#attributes']['id'] . '-target-id';
+		}
+	  }  
+
+}
+
+/* Não exibir certos campos ou label no modo de visualização full 
+*  Na adição já não exibe pela configuração do tipo de conteúdo.
+*/
+
+function my_module_node_view($node, $view_mode, $langcode) {
+  
+global $user;
+			// if (in_array('filiado', $user->roles) or in_array('pendente', $user->roles) or sizeof($user->roles) == 1 ) {
+			if (in_array('filiado', $user->roles)  or 
+			    in_array('pendente', $user->roles) or 
+				in_array('sem filiado', $user->roles) or
+				in_array('não autorizado', $user->roles)
+				) {				
+				unset($node->content['field_situacaofiliado']);	
+				unset($node->content['field_desligamento']);			
+				unset($node->content['field_aposentadoria']);
+				unset($node->content['field_aposentadoria_1']);
+				unset($node->content['field_contratado']);
+				unset($node->content['field_auxilio_funeral']);
+				unset($node->content['field_obs']);
+				unset($node->content['field_idacao']);
+			}
+}

@@ -1,0 +1,4 @@
+name = cf_import_siape
+description = Importar arquivos do SIAPE + Bancos + Órgãos UFPAG
+core = 7.x
+package = Other

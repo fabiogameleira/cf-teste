@@ -1,0 +1,777 @@
+<?php
+function cf_import_siape_feeds_after_parse(FeedsSource $source, FeedsParserResult $result) {
+
+			$feedSource = feeds_source($source->id);			
+			$arquivo = $feedSource->config["FeedsFileFetcher"]["source"];    
+            $interrompe = FALSE;
+			$msg_erro = 'Nome do arquivo inválido!! O arquivo '. str_replace('private://feeds/','',$arquivo);
+			$msg_erro = $msg_erro .' possui nome incompatível com a importação sendo efetuada.';	
+   	
+	        // Importar do SIAPE
+			if ( ($source->id == 'importar_consignacoes_servidor_d8') or
+			     ($source->id == 'importar_consignacoes_pensionista_d8') or
+				 ($source->id == 'importar_rubricas_excluidas_pensionista') or
+				 ($source->id == 'importar_rubricas_excluidas') ) {
+									 
+					if (!strpos($arquivo,('siapenet_')) and 
+						!strpos($arquivo,'relanaliticod8')) {
+						$interrompe = TRUE;
+						}
+					else {
+						if (strpos($arquivo,'siapenet_')) {
+						  $nomenclaturaarquivo = 'siapenet_';					  
+						}
+						else {
+						  $nomenclaturaarquivo = 'relanaliticod8';
+						}
+					}
+				}
+				
+			switch ($source->id) {
+			  // Importar do SIAPE					
+			  case 'importar_consignacoes_servidor_d8':
+					//relanaliticoD8022021 + "_ConsigServidor.CSV"
+					if (!strpos($arquivo,'consigservidor')) {
+					   $interrompe = TRUE;
+					}			
+					if (!$interrompe) {
+						// Ver se arquivo já foi importado
+						$tipo = "consignacao";
+						$nomedoarquivo = str_replace('private://feeds/','',$arquivo);
+					}
+					cf_import_siape_importar_consignacoes_servidor_d8($feedSource, $result, $arquivo, $interrompe,$msg_erro,$nomenclaturaarquivo);
+					break;
+			  // Importar do SIAPE
+			  case 'importar_consignacoes_pensionista_d8':			
+					//relanaliticoD8022021 + "_ConsigPensionista.CSV"
+					if (!strpos($arquivo,'consigpensionista')) {
+					   $interrompe = TRUE;
+					}
+					cf_import_siape_importar_consignacoes_pensionista_d8($feedSource, $result, $arquivo, $interrompe,$msg_erro,$nomenclaturaarquivo);
+					break;	
+			  // Importar do SIAPE	
+			  case 'importar_rubricas_excluidas_pensionista':
+					//relanaliticoD8022021 + "_RubrExclPensionista.CSV"
+					if (!strpos($arquivo,'rubrexclpensionista')) {
+					   $interrompe = TRUE;
+					}		
+					cf_import_siape_importar_rubricas_excluidas_pensionista($feedSource, $result, $arquivo,$interrompe,$msg_erro,$nomenclaturaarquivo);
+					break;			
+              // Importar do SIAPE					
+			  case 'importar_rubricas_excluidas':
+					//relanaliticoD8022021 + "_RubrExclServidor.CSV"
+					if (!strpos($arquivo,'rubrexclservidor')) {
+					   $interrompe = TRUE;
+					}						
+					cf_import_siape_importar_rubricas_excluidas($feedSource, $result, $arquivo,$interrompe,$msg_erro,$nomenclaturaarquivo);
+					break;	
+			  // Importar do SIAPE		
+			  case 'importar_autorizacoes':
+				    //Nome: 29213055000161_20210313_112609_AUT.TXT (CNPJ+Data+Hora)
+					if (!strpos($arquivo,'_aut')) {
+					   $interrompe = TRUE;
+					}					
+					cf_import_siape_importar_autorizacoes($feedSource, $result, $arquivo,$interrompe,$msg_erro);
+					break;	
+			  // Importar do SIAPE		
+			  case 'importar_anuencias':
+					//9213055000161_20210313_112609_ANU.TXT (CNPJ+Data+Hora)
+					if (!strpos($arquivo,'_anu')) {
+					   $interrompe = TRUE;
+					}						
+					cf_import_siape_importar_anuencias($feedSource, $result, $arquivo,$interrompe,$msg_erro);
+					break;
+			  // Importar do SIAPE		
+			  case 'importar_retorno_contratos_inclusao':
+				    //RETORNO00553S 
+					if (!strpos($arquivo,'retorno')) {
+					   $interrompe = TRUE;
+					}
+					cf_import_siape_importar_retorno_contratos_inclusao($feedSource, $result, $arquivo,$interrompe,$msg_erro);
+					break;	
+			  // Importar do SIAPE		
+			  case 'gerar_pagamentos_do_filiado':
+				    //RETORNO00553S 
+					//if (!strpos($arquivo,'retorno')) {
+					   //$interrompe = TRUE;
+					//}
+					   //global $user;
+					   cf_import_siape_pagamentos_dos_filiados($result, $arquivo,$interrompe,$msg_erro);
+					break;	
+				// Importar do SIAPE	
+			    case 'obter_pagamentos_do_filiado_xml':
+				    //RETORNO00553S 
+					//if (!strpos($arquivo,'retorno')) {
+					   //$interrompe = TRUE;
+					//}
+					   //global $user;
+					   cf_import_siape_pagamentos_dos_filiados($result, $arquivo,$interrompe,$msg_erro);
+					break;						
+			  default:	
+				break;		  
+			}	
+	
+}
+
+/* OBTER relacionamento idcodigo empresa de Orgãos UFPAG */
+/* Utilizado para relacionar as importacoes de consignações e */
+/* Rubricas excluídas */
+/* ao node Orgãos UFPAG*/
+// Importar do SIAPE
+function cf_import_siape_obter_relac_idempresa($codigo_do_orgao) {
+	
+	$queryorgaoufpag = new EntityFieldQuery();	
+	$resultorgao = $queryorgaoufpag->entityCondition('entity_type', 'node')
+		->entityCondition('bundle', 'orgaos')
+		->propertyCondition('title', $codigo_do_orgao)
+		->execute();
+	if (!empty($resultorgao)){
+		$orgaos = node_load_multiple(array_keys($resultorgao['node']));
+		foreach ($orgaos as $orgao) {
+			$idempresa = $orgao->nid;
+		}
+	}	
+
+	return($idempresa);
+}
+
+/* OBTER relacionamento idcpf de filiado */
+/* Utilizado para relacionar as importacoes do SIAPE*/
+/* ao node filiado*/
+// Importar do SIAPE
+function cf_import_siape_obter_relac_idcpf($cpf) {
+	
+	$queryfiliado = new EntityFieldQuery();	
+	$resultfiliado = $queryfiliado->entityCondition('entity_type', 'node')
+		->entityCondition('bundle', 'filiado')
+		->propertyCondition('title', $cpf)
+		->execute();
+	if (!empty($resultfiliado)){
+		$filiados = node_load_multiple(array_keys($resultfiliado['node']));
+		foreach ($filiados as $filiado) {
+			$idcpf = $filiado->nid;
+		}
+	}	
+	return($idcpf);
+}
+
+// Importar do SIAPE
+function cf_import_siape_apaga_pagamentos_dos_filiados($usuario) {
+	
+	$querypagamentos = new EntityFieldQuery();	
+	$resultpagamentos = $querypagamentos ->entityCondition('entity_type', 'node')
+			->entityCondition('bundle', 'pagamentos_do_filiado')
+			->fieldCondition('field_usuario_execucao', 'value', $usuario, '=')
+			->execute();
+	if (!empty($resultpagamentos)) {
+		$pagamentos = node_load_multiple(array_keys($resultpagamentos['node']));
+		foreach ($pagamentos as $pagamento) {
+			 $nids[] = $pagamento->nid;
+		}
+		if (!empty($nids)) {
+		  node_delete_multiple($nids);
+		}
+	}
+}
+
+// Importar do SIAPE
+function cf_import_siape_pagamentos_dos_filiados($result, $arquivo, $interrompe, $msg_erro) {
+	global $user;
+	$n=0;
+
+	foreach($result->items as $item_key) {
+			//Data da Geração
+			// data no formato dd/mm/aaaa
+			// converte para aaaa-mm-dd
+			$data = $item_key['competencia'];
+			  //csv
+				$ano =  substr($data,6,4);
+				$mes =  substr($data,3,2);
+				$dia =  substr($data,0,2); //dd/mm/aaaa 
+
+			$competencia = new DateTime($ano.'-'. $mes. '-' .$dia);
+			$result->items[$n]['competencia'] = $competencia ;
+
+			$result->items[$n]['usuario'] = $user->uid; 
+		   $n++;
+	} 
+	return($result);
+}
+
+
+/* IMPORTACOES SIAPE */
+/* IMPORTAR RETORNO DE CONTRATOS DE INCLUSAO*/
+function cf_import_siape_importar_retorno_contratos_inclusao($feedSource, $result, $arquivo, $interrompe, $msg_erro) {
+	
+	$ntamreg = 133;
+	$n=0;
+	$data_importacao             = date("Y/m/d H:i:s");
+		
+	foreach($result->items as $item_key) {
+
+		$tipo_de_retorno		     = substr ($item_key[0],0,1);
+		$anomespgto	                 = substr ($item_key[0],1,6);
+		$cnpj		                 = substr ($item_key[0],7,14);
+		$orgao_siape		         = substr ($item_key[0],21,5);
+		$matricula_siape	         = substr ($item_key[0],26,7); 
+		$matricula_beneficiario      = substr ($item_key[0],33,8);
+		$contrato	                 = substr ($item_key[0],41,20); 
+		$dt_processo		         = substr ($item_key[0],61,8);
+		$codigo_retorno              = substr ($item_key[0],69,4); 
+		$mensagem		             = substr ($item_key[0],73,60); 
+			
+		$result->items[$n]['titulo']            		= $matricula_siape.'-'.$contrato;
+		$result->items[$n]['tipo_de_retorno']   		= $tipo_de_retorno;
+		$result->items[$n]['anomespgto']   				= $anomespgto;
+		$result->items[$n]['cnpj']   					= $cnpj;
+		$result->items[$n]['orgao_siape']   			= $orgao_siape;
+		$result->items[$n]['matricula_siape']   		= $matricula_siape;
+		$result->items[$n]['matricula_beneficiario']   	= $matricula_beneficiario;
+		$result->items[$n]['contrato']   				= $contrato;
+		$result->items[$n]['dt_processo']   			= $dt_processo;
+		$result->items[$n]['codigo_retorno']   			= $codigo_retorno;
+		$result->items[$n]['mensagem']   				= $mensagem;
+		$result->items[$n]['data_importacao']           = $data_importacao;	
+
+		if ($interrompe) {
+			$result->items[$n]['arquivo'] = $msg_erro;
+			drupal_set_message($msg_erro, 'erro');
+		}
+		else {
+			$result->items[$n]['arquivo'] = str_replace('private://feeds/','',$arquivo);
+		}
+		
+		$n++;
+	} 
+	return($result);
+}
+
+/* IMPORTAR ANUENCIAS*/
+function cf_import_siape_importar_anuencias($feedSource, $result, $arquivo, $interrompe, $msg_erro) {
+	$n=0;
+	$dia = '01';
+	$mes = substr(str_replace('private://feeds/'.$nomenclaturaarquivo,'',$arquivo),4,2);
+	$ano = substr(str_replace('private://feeds/'.$nomenclaturaarquivo,'',$arquivo),0,4);
+	$competencia = new DateTime($ano.'-'.$mes . '-' .$dia) ; 
+		
+	foreach($result->items as $item_key) {
+		if ($interrompe) {
+			$result->items[$n]['arquivo'] = $msg_erro;
+			drupal_set_message($msg_erro, 'erro');
+		}
+		else {
+			$result->items[$n]['arquivo'] = str_replace('private://feeds/','',$arquivo);
+		}
+		$n++;
+	} 
+	return($result);	
+}
+
+/* IMPORTAR AUTORIZACOES*/
+function cf_import_siape_importar_autorizacoes($feedSource, $result, $arquivo, $interrompe, $msg_erro) {
+	
+	$n=0;
+	$data_importacao             	= date("Y/m/d H:i:s");
+	//dpm($result->items);
+	foreach($result->items as $item_key) {
+		//if ($n > 0) { 
+			$cpf            			 		= str_replace(array('.', '-', '/'), '', $item_key['cpf']);
+
+			//Código Órgão
+			$codigo_do_orgao             		= $item_key['código órgão'];
+
+			//Matrícula Servidor/Instituidor
+			$matricula_serv_inst      		   = $item_key['matrícula servidor/instituidor'];
+
+			//Matrícula Beneficiário de Pensão
+			$matricula_beneficiario	          	= $item_key['matrícula beneficiário de pensão'];
+
+			//Nome
+			$nome                               = substr($item_key['nome'],0,50);
+
+			$tipo_autorizacao                   = $item_key['tipo de autorização'];
+
+			//Data da Geração
+			// data no formato dd/mm/aaaa
+			// converte ara aaaa-mm-dd
+			$data = $item_key['data da geração'];
+			$data =  substr($data,6,4).'-'.substr($data,3,2).'-'.substr($data,0,2);//2012-10-10 
+			$dt_geracao = $data;
+
+			//Validade da Autorização
+			$validade_autorizacao			= item_key['validade da autorização'];
+
+			$key = trim($matricula_serv_inst.trim($matricula_beneficiario));
+			$result->items[$n]['titulo']                    		= $key;
+			$result->items[$n]['cpf']            					= $cpf; 
+			$result->items[$n]['código órgão']          			= $codigo_do_orgao;
+			$result->items[$n]['matrícula servidor/instituidor']	= $matricula_serv_inst;
+			$result->items[$n]['matrícula beneficiário de pensão'] 	= $matricula_beneficiario;
+			$result->items[$n]['nome']								= $nome;
+			$result->items[$n]['tipo de autorização']				= $tipo_autorizacao;
+			$result->items[$n]['data da geração']             		= $dt_geracao;
+			$result->items[$n]['validade da autorização ']      	= $validade_autorizacao;
+			$result->items[$n]['data_importacao']           		= $data_importacao;		
+			if ($interrompe) {
+				$result->items[$n]['arquivo'] = $msg_erro;
+				drupal_set_message($msg_erro, 'erro');
+			}
+			else {
+
+				$result->items[$n]['arquivo_importado'] = str_replace('private://feeds/','',$arquivo);
+			}
+		//} else {
+		//	unset($result->items[$n]);
+		//}
+		//dpm($n);
+		$n++;
+	} 
+	return($result);	
+}
+
+/* Obter Situação sindicao para gravar na carga dos arquivos d8 */
+// Importar do MALAO
+function cf_import_siape_situacaosindical($cpf,$siape,$nome)  {
+
+			//Pesquisa filiado por CPF
+			$queryfiliado = new EntityFieldQuery();	
+			$result = $queryfiliado->entityCondition('entity_type', 'node')
+				->entityCondition('bundle', 'filiado')
+				->propertyCondition('status', NODE_PUBLISHED)
+				->propertyCondition('title', $cpf)
+				->execute();
+
+			if (!empty($result)){
+				
+				$filiados = node_load_multiple(array_keys($result['node']));				
+				foreach ($filiados as $filiado) { 
+					  $tid = taxonomy_term_load($filiado->field_situacaofiliado[und][0]['tid']);
+					  $situacaosindical=strtolower($tid->name);
+				}
+			}	
+			else {
+				
+                // Não encontrou por CPF, pesquisa por matricula siape	
+				$queryfiliado = new EntityFieldQuery();	
+				$result = $queryfiliado->entityCondition('entity_type', 'node')
+				->entityCondition('bundle', 'filiado')
+				->propertyCondition('status', NODE_PUBLISHED)
+				->fieldCondition('field_siape', 'value', $siape, '=')
+				->execute();
+				
+				if (!empty($result)){
+					$filiados = node_load_multiple(array_keys($result['node']));				
+					foreach ($filiados as $filiado) { 
+					  $tid = taxonomy_term_load($filiado->field_situacaofiliado[und][0]['tid']);
+					  $situacaosindical=$tid->name;
+					}
+			    } 
+			    else {
+				   $situacaosindical = "Não identificado";
+			    }
+			}
+
+	return ($situacaosindical);
+}
+
+/* IMPORTAR CONSIGNAÇÕES SERVIDOR D8*/
+// Importar do SIAPE
+function cf_import_siape_importar_consignacoes_servidor_d8($feedSource, $result, $arquivo, $interrompe, $msg_erro,$nomenclaturaarquivo) {
+		
+		$ntamreg = 149;
+		$n=0;    
+		$dia ='01';
+        $data_importacao             = date("Y/m/d H:i:s");
+		//aaaamm
+		//$mes = substr(str_replace('private://feeds/'.$nomenclaturaarquivo,'',$arquivo),4,2);
+		//$ano = substr(str_replace('private://feeds/'.$nomenclaturaarquivo,'',$arquivo),0,4);
+		//mmaaaa
+		$mes = substr(str_replace('private://feeds/'.$nomenclaturaarquivo,'',$arquivo),0,2);
+		$ano = substr(str_replace('private://feeds/'.$nomenclaturaarquivo,'',$arquivo),2,4);
+		$competencia = new DateTime($ano.'-'.$mes . '-' .$dia) ; 
+		
+		foreach($result->items as $item_key) {
+
+			// Código do Órgão N(005)
+			$codigo_do_orgao             = substr ($item_key[0],0,5);
+			// Matrícula do Servidor N(007)
+			$matricula_pen_ser           = substr ($item_key[0] ,5,7);
+			// Código da UPAG N(009)
+			$codigo_upag_pensionista     = substr ($item_key[0],12,9);
+			// UF da UPAG do Servidor A(002)
+			$uf_upag_pensionista         = substr ($item_key[0],21,2);
+			// Nome do Servidor A(050)
+			$nome_da_pensionista         = substr ($item_key[0] ,23,50);
+			//CPF do Servidor  N(011)
+			$cpf            			 = substr ($item_key[0] ,73,11);
+			// Código da Rubrica Autorizada N(005)
+			$codigo_da_rubrica_autoriza  = substr ($item_key[0] ,84,5);
+			// Sequência da Rubrica N(001)
+			$sequencia_rubrica           = substr ($item_key[0] ,89,1);
+			// Valor da Rubrica N(9,2)
+			$val_rubrica                 = strval(substr ($item_key[0] ,90,11)/100);
+			$val_rubrica = number_format($val_rubrica ,2,".","");
+			//Prazo da Rubrica N(003)
+			$prazo_da_rubrica            = substr ($item_key[0] ,101,3);
+			//Código da UG-SIAFI N(006)
+			$codigo_da_ug_siafi          = substr ($item_key[0] ,104,6);
+			//Categoria do Servidor A(012)
+			$categoria_da_pensionista    = substr ($item_key[0] ,110,12);
+			//Número do Contrato na Consignatária A(020)
+			$numero_contrato             = substr ($item_key[0] ,122,20);
+			//Assunto Calculo N(02)
+			$assunto_calculo             = substr ($item_key[0] ,142,2);
+			//Percentual N(05)
+			$percentual                  = substr ($item_key[0] ,144,5);
+			$tipo_de_consignacao = 'Servidor';
+			
+			// titulo não pode ser apenas contrato
+			// Tem que ser  $competencia  + $cpf_pensionista + $numero_contrato
+
+			$key = trim($ano.$mes.'-'.$tipo_de_consignacao.'-'.$codigo_do_orgao.'-'.$cpf.'-'.$numero_contrato);
+			$result->items[$n]['titulo']                     = $key;
+			$result->items[$n]['codigo_do_orgao']            = $codigo_do_orgao;
+			$result->items[$n]['matricula_pen_ser']          = $matricula_pen_ser;
+			$result->items[$n]['codigo_upag_pensionista']    = $codigo_upag_pensionista;   
+			$result->items[$n]['uf_upag_pensionista']        = $uf_upag_pensionista;     
+			$result->items[$n]['nome_da_pensionista']        = $nome_da_pensionista; 
+			$result->items[$n]['cpf']            			 = $cpf;         
+			$result->items[$n]['codigo_da_rubrica_autoriza'] = $codigo_da_rubrica_autoriza; 
+			$result->items[$n]['sequencia_rubrica']          = $sequencia_rubrica;       
+			$result->items[$n]['val_rubrica']                = $val_rubrica;      
+			$result->items[$n]['prazo_da_rubrica']           = $prazo_da_rubrica;    
+			$result->items[$n]['codigo_da_ug_siafi']         = $codigo_da_ug_siafi;      
+			$result->items[$n]['categoria_da_pensionista']   = $categoria_da_pensionista; 
+			$result->items[$n]['numero_contrato']            = $numero_contrato;  
+			$result->items[$n]['assunto_calculo']            = $assunto_calculo;  
+			$result->items[$n]['percentual']                 = $percentual;
+			$result->items[$n]['dt_competencia']             = $competencia;
+			$result->items[$n]['data_importacao']            = $data_importacao;
+			$result->items[$n]['tipo_de_consignacao']        = $tipo_de_consignacao;
+			$result->items[$n]['idconsigna']        		 = $key;
+			$result->items[$n]['situacaosindical']           = cf_import_siape_situacaosindical($cpf,$matricula_pen_ser,$nome_da_pensionista);
+			
+			if ($interrompe) {
+				$result->items[$n]['arquivo'] = $msg_erro;
+				drupal_set_message($msg_erro, 'erro');
+			} 
+			else {
+				$result->items[$n]['arquivo'] = str_replace('private://feeds/','',$arquivo);				
+				// Obtem idcpf do filiado.
+				$idcpf =  cf_import_siape_obter_relac_idcpf($cpf);
+				$result->items[$n]['idcpf']['target_id'] = $idcpf;	
+                // Obter idcodigoorgao do órgão
+				$idempresa =  cf_import_siape_obter_relac_idempresa($codigo_do_orgao);
+				$result->items[$n]['idempresa']['target_id'] = $idempresa;			
+			}
+			$n++;
+		}
+	return($result);	
+}
+
+/* IMPORTAR CONSIGNAÇÕES PENSIONISTA D8*/
+// Importar do SIAPE
+function cf_import_siape_importar_consignacoes_pensionista_d8($feedSource, $result, $arquivo, $interrompe, $msg_erro,$nomenclaturaarquivo) {
+	
+	    $ntamreg = 152;
+		$n=0;
+		$dia= '01';
+	    $data_importacao = date("Y/m/d H:i:s");   
+		//aaaamm
+		//$mes = substr(str_replace('private://feeds/'.$nomenclaturaarquivo,'',$arquivo),4,2);
+		//$ano = substr(str_replace('private://feeds/'.$nomenclaturaarquivo,'',$arquivo),0,4);
+		//mmaaaa
+		$mes = substr(str_replace('private://feeds/'.$nomenclaturaarquivo,'',$arquivo),0,2);
+		$ano = substr(str_replace('private://feeds/'.$nomenclaturaarquivo,'',$arquivo),2,4);
+		$competencia = new DateTime($ano.'-'.$mes . '-' .$dia) ; 
+		
+		foreach($result->items as $item_key) {
+
+			// Código do Órgão N(005)
+			$codigo_do_orgao             = substr ($item_key[0],0,5);
+			// Matrícula do Instituidor de Pensão N(007)
+			$matricula_instituidor       = substr ($item_key[0] ,5,7);
+			// Matrícula do pensionista N(008)
+			$matricula_pen_ser           = substr ($item_key[0] ,12,8);
+			// Código da UPAG N(009)
+			$codigo_upag_pensionista     = substr ($item_key[0],20,9);
+			// UF da UPAG do pensionista A(002)
+			$uf_upag_pensionista         = substr ($item_key[0],29,2);
+			// Nome do pensionista A(050)
+			$nome_da_pensionista         = substr ($item_key[0] ,31,45);
+			//CPF do servidor  N(011)
+			$cpf     	            	 = substr ($item_key[0] ,76,11);
+			// Código da Rubrica Autorizada N(005)
+			$codigo_da_rubrica_autoriza  = substr ($item_key[0] ,87,5);
+			// Sequência da Rubrica N(001)
+			$sequencia_rubrica           = substr ($item_key[0] ,92,1);
+			// Valor da Rubrica N(9,2)
+			$val_rubrica                 = strval(substr ($item_key[0] ,93,11))/100;
+			$val_rubrica = number_format($val_rubrica ,2,".","");
+			//Prazo da Rubrica N(003)
+			$prazo_da_rubrica            = substr ($item_key[0] ,104,3);
+			//Código da UG-SIAFI N(006)
+			$codigo_da_ug_siafi          = substr ($item_key[0] ,107,6);
+			//Categoria do Servidor A(012)
+			$categoria_da_pensionista    = substr ($item_key[0] ,113,12);
+			//Número do Contrato na Consignatária A(020)
+			$numero_contrato             = substr ($item_key[0] ,125,20);
+			//Assunto Calculo N(02)
+			$assunto_calculo             = substr ($item_key[0] ,145,2);
+			//Percentual N(05)
+			$percentual                  = substr ($item_key[0] ,147,5);
+
+         
+			//$tipo_de_consignacao 
+			$tipo_de_consignacao = 'Pensionista';		
+			
+			// titulo não pode ser apenas contrato
+			// Tem que ser  + $competencia + $cpf_pensionista + $numero_contrato 
+			$key = trim($ano.$mes.'-'.$tipo_de_consignacao .'-'.$cpf.'-'.$numero_contrato.'-'.$codigo_do_orgao);
+			$result->items[$n]['titulo']                     = $key;
+			$result->items[$n]['codigo_do_orgao']            = $codigo_do_orgao;
+			$result->items[$n]['matricula_instituidor']      = $matricula_instituidor;			
+			$result->items[$n]['matricula_pen_ser']          = $matricula_pen_ser;
+			$result->items[$n]['codigo_upag_pensionista']    = $codigo_upag_pensionista;   
+			$result->items[$n]['uf_upag_pensionista']        = $uf_upag_pensionista;     
+			$result->items[$n]['nome_da_pensionista']        = $nome_da_pensionista; 
+			$result->items[$n]['cpf']            			 = $cpf;         
+			$result->items[$n]['codigo_da_rubrica_autoriza'] = $codigo_da_rubrica_autoriza; 
+			$result->items[$n]['sequencia_rubrica']          = $sequencia_rubrica;         
+			$result->items[$n]['val_rubrica']                = $val_rubrica; 	
+			$result->items[$n]['prazo_da_rubrica']           = $prazo_da_rubrica;    
+			$result->items[$n]['codigo_da_ug_siafi']         = $codigo_da_ug_siafi;      
+			$result->items[$n]['categoria_da_pensionista']   = $categoria_da_pensionista; 
+			$result->items[$n]['numero_contrato']            = $numero_contrato;  
+			$result->items[$n]['assunto_calculo']            = $assunto_calculo;  
+			$result->items[$n]['percentual']                 = $percentual;
+			$result->items[$n]['dt_competencia']             = $competencia;
+			$result->items[$n]['data_importacao']            = $data_importacao;		
+			$result->items[$n]['tipo_de_consignacao']        = $tipo_de_consignacao;
+			$result->items[$n]['idconsigna']                 = $key;
+			$result->items[$n]['situacaosindical']           = cf_import_siape_situacaosindical($cpf,$matricula_pen_ser,$nome_da_pensionista);
+		    
+			if ($interrompe) {
+				$result->items[$n]['arquivo'] = $msg_erro;
+				drupal_set_message($msg_erro, 'erro');
+	        }
+			else {
+				$result->items[$n]['arquivo'] = str_replace('private://feeds/','',$arquivo);				
+				// Obtem idcpf do filiado.
+				$idcpf =  cf_import_siape_obter_relac_idcpf($cpf);
+				$result->items[$n]['idcpf']['target_id'] = $idcpf;
+                // Obter idcodigoorgao do órgão
+				$idempresa =  cf_import_siape_obter_relac_idempresa($codigo_do_orgao);
+				$result->items[$n]['idempresa']['target_id'] = $idempresa;	
+			}
+			$n++;
+		} 
+	return($result);	
+}
+
+/* IMPORTAR RUBRICAS EXCLUIDAS PENSIONISTA*/
+// Importar do SIAPE
+function cf_import_siape_importar_rubricas_excluidas_pensionista($feedSource, $result, $arquivo, $interrompe, $msg_erro,$nomenclaturaarquivo) {
+		
+		$ntamreg = 206;
+		$n=0;
+		$dia ='01';
+		$data_importacao = date("Y/m/d H:i:s");
+		
+		//aaaamm
+		//$mes = substr(str_replace('private://feeds/'.$nomenclaturaarquivo,'',$arquivo),4,2);
+		//$ano = substr(str_replace('private://feeds/'.$nomenclaturaarquivo,'',$arquivo),0,4);
+		//mmaaaa
+		$mes = substr(str_replace('private://feeds/'.$nomenclaturaarquivo,'',$arquivo),0,2);
+		$ano = substr(str_replace('private://feeds/'.$nomenclaturaarquivo,'',$arquivo),2,4);
+		$competencia = new DateTime($ano.'-'.$mes . '-' .$dia) ; 
+
+		foreach($result->items as $item_key) {
+						
+			// Código do Órgão N(005)005
+			$exc_codigo_do_orgao             		= substr ($item_key[0],0,5);
+			// Matrícula do Instituidor 
+			//de Pensão N(007) 
+			$exc_matricula_serv_inst                = substr ($item_key[0] ,5,7);
+			// Matrícula do pensionista N(008)
+			$exc_matricula_pensionista              = substr ($item_key[0] ,12,8);
+			// Código da UPAG N(009)
+			$exc_codigo_da_upag                     = substr ($item_key[0],20,9);
+			// UF da UPAG do pensionista A(002)
+			$exc_uf_da_upag         				= substr ($item_key[0],29,2);
+			// Nome do pensionista A(045)
+			$exc_nome         						= substr ($item_key[0] ,31,45);
+			//CPF do pensionista  N(011)
+			$exc_cpf             					= substr ($item_key[0] ,76,11);
+			// Código da Rubrica 
+			//Autorizada N(005)
+			$exc_codigo_da_rubrica  				= substr ($item_key[0] ,87,5);
+			// Sequência da Rubrica N(001)
+			$exc_sequencia_da_rubrica           	= substr ($item_key[0] ,92,1);
+			// Valor da Rubrica N(9,2)
+			$exc_valor_da_rubrica                 	= strval(substr ($item_key[0] ,93,11))/100;
+			$exc_valor_da_rubrica 					= number_format($exc_valor_da_rubrica ,2,".","");
+			//Prazo da Rubrica N(003)
+			$exc_prazo_da_rubrica            		= substr ($item_key[0] ,104,3);
+			//Motivo da Rejeição / 
+			// Exclusão do Pagamento N(006)060
+			$exc_motivo          					= substr ($item_key[0] ,107,60);
+			//Categoria do Servidor A(012)012
+			$exc_categoria_do_servidor    			= substr ($item_key[0] ,167,12);
+			//Número do Contrato na 
+			// Consignatária A(020) 020
+			$exc_contrato_consignataria             = substr ($item_key[0] ,179,20);
+			//Assunto Calculo N(02)02
+			$exc_assunto_calc             			= substr ($item_key[0] ,199,2);
+			//Perentual N(05)
+			$exc_percentual             			= substr ($item_key[0] ,201,5);
+
+			//$tipo_de_consignacao 
+			$tipo_de_consignacao = 'Pensionista';	
+			
+			// titulo não pode ser apenas contrato
+			// Tem que ser $exc_contrato_consignataria + $exc_cpf + $competencia
+			if (empty(trim($exc_contrato_consignataria))) {
+			   $exc_contrato_consignataria = '00000';	
+			}
+
+			$key = trim($ano.$mes.'-'.$tipo_de_consignacao.'-'.$exc_cpf.'-'.$exc_contrato_consignataria.'-'.str_replace('.','',trim($exc_valor_da_rubrica)));
+			$result->items[$n]['titulo']                     = $key;
+			$result->items[$n]['exc_codigo_do_orgao']        = $exc_codigo_do_orgao;
+			$result->items[$n]['exc_matricula_serv_inst']    = $exc_matricula_serv_inst;			
+			$result->items[$n]['exc_matricula_pensionista']  = $exc_matricula_pensionista;
+			$result->items[$n]['exc_codigo_da_upag']    	 = $exc_codigo_da_upag;   
+			$result->items[$n]['exc_uf_da_upag']        	 = $exc_uf_da_upag;     
+			$result->items[$n]['exc_nome']   		         = $exc_nome; 
+			$result->items[$n]['exc_cpf']            		 = $exc_cpf;         
+			$result->items[$n]['exc_codigo_da_rubrica'] 	 = $exc_codigo_da_rubrica; 
+			$result->items[$n]['exc_sequencia_da_rubrica']   = $exc_sequencia_da_rubrica;         
+			$result->items[$n]['exc_valor_da_rubrica']       = $exc_valor_da_rubrica; 	
+			$result->items[$n]['exc_prazo_da_rubrica']       = $exc_prazo_da_rubrica;    
+			$result->items[$n]['exc_motivo']   				 = $exc_motivo; 
+			$result->items[$n]['exc_categoria_do_servidor']  = $exc_categoria_do_servidor;
+			$result->items[$n]['exc_contrato_consignataria'] = $exc_contrato_consignataria;  
+			$result->items[$n]['exc_assunto_calc']           = $exc_assunto_calc;  
+			$result->items[$n]['exc_percentual']             = $exc_percentual;
+			$result->items[$n]['dt_competencia']             = $competencia;			
+			$result->items[$n]['tipo_de_consignacao']        = $tipo_de_consignacao;			
+			$result->items[$n]['data_importacao']            = $data_importacao;	
+			$result->items[$n]['idrubrexcluida']             = $key;				
+			if ($interrompe) {				
+				$result->items[$n]['arquivo'] = $msg_erro;
+				drupal_set_message($msg_erro, 'erro');
+			}
+			else {
+				$result->items[$n]['arquivo'] = str_replace('private://feeds/','',$arquivo);
+				// Obtem idcpf do filiado.
+				$idcpf =  cf_import_siape_obter_relac_idcpf($exc_cpf);
+				$result->items[$n]['idcpf']['target_id'] = $idcpf;
+                // Obter idcodigoorgao do órgão
+				$idempresa =  cf_import_siape_obter_relac_idempresa($exc_codigo_do_orgao);
+				$result->items[$n]['idempresa']['target_id'] = $idempresa;	
+			}
+			$n++;
+		}
+	return($result);
+}
+
+/* IMPORTAR RUBRICAS EXCLUIDAS SERVIDOR*/
+// Importar do SIAPE
+function cf_import_siape_importar_rubricas_excluidas($feedSource, $result, $arquivo,$interrompe,$msg_erro,$nomenclaturaarquivo) {
+	$ntamreg = 203;
+	$n=0;
+	$dia ='01';
+	$data_importacao = date("Y/m/d H:i:s");
+	//aaaamm
+	//$mes = substr(str_replace('private://feeds/'.$nomenclaturaarquivo,'',$arquivo),4,2);
+	//$ano = substr(str_replace('private://feeds/'.$nomenclaturaarquivo,'',$arquivo),0,4);
+	//mmaaaa
+	$mes = substr(str_replace('private://feeds/'.$nomenclaturaarquivo,'',$arquivo),0,2);
+	$ano = substr(str_replace('private://feeds/'.$nomenclaturaarquivo,'',$arquivo),2,4);
+	
+
+	$competencia = new DateTime($ano.'-'.$mes . '-' .$dia) ; 
+
+	foreach($result->items as $item_key) {
+
+			// Código do Órgão N(005)005
+			$exc_codigo_do_orgao             		= substr ($item_key[0],0,5);
+			// Matrícula do servidor N(007)
+			$exc_matricula_serv_inst                = substr ($item_key[0] ,5,7);
+			
+			$exc_codigo_da_upag                     = substr ($item_key[0],12,9);
+			// UF da UPAG  A(002)
+			$exc_uf_da_upag         				= substr ($item_key[0],21,2);
+			// Nome do servidor A(050)
+			$exc_nome         						= substr ($item_key[0] ,23,50);
+			//CPF do servidor  N(011)
+			$exc_cpf             					= substr ($item_key[0] ,73,11);
+			// Código da Rubrica  N(005)
+			$exc_codigo_da_rubrica  				= substr ($item_key[0] ,84,5);
+			// Sequência da Rubrica N(001)
+			$exc_sequencia_da_rubrica           	= substr ($item_key[0] ,89,1);
+			// Valor da Rubrica N(9,2)
+			$exc_valor_da_rubrica                 	= strval(substr ($item_key[0] ,90,11))/100;
+			$exc_valor_da_rubrica 					= number_format($exc_valor_da_rubrica ,2,".","");
+			//Prazo da Rubrica N(003)
+			$exc_prazo_da_rubrica            		= substr ($item_key[0] ,101,3);
+			//Motivo da Rejeição / 
+			// Exclusão do Pagamento N(006)060
+			$exc_motivo          					= substr ($item_key[0] ,104,60);
+			//Categoria do Servidor A(012)012
+			$exc_categoria_do_servidor    			= substr ($item_key[0] ,164,12);
+			//Número do Contrato na 
+			// Consignatária A(020) 020
+			$exc_contrato_consignataria             = substr ($item_key[0] ,176,20);
+			//Assunto Calculo N(02)02
+			$exc_assunto_calc             			= substr ($item_key[0] ,196,2);
+			$exc_percentual             			= substr ($item_key[0] ,198,5);
+
+						//$tipo_de_consignacao 
+			$tipo_de_consignacao = 'Servidor';	
+			
+			// titulo não pode ser apenas contrato
+			// Tem que ser $exc_contrato_consignataria + $exc_cpf + $competencia
+			if (empty(trim($exc_contrato_consignataria))) {
+			   $exc_contrato_consignataria = '00000';	
+			}
+
+			$key = trim($ano.$mes.'-'.$tipo_de_consignacao.'-'. $exc_codigo_do_orgao .'-'.$exc_cpf.'-'.$exc_contrato_consignataria.'-'. str_replace('.','',trim($exc_valor_da_rubrica)));
+			$result->items[$n]['titulo']                     = $key;
+			$result->items[$n]['exc_codigo_do_orgao']        = $exc_codigo_do_orgao;
+			$result->items[$n]['exc_matricula_serv_inst']    = $exc_matricula_serv_inst;					
+			$result->items[$n]['exc_codigo_da_upag']    	 = $exc_codigo_da_upag;   
+			$result->items[$n]['exc_uf_da_upag']        	 = $exc_uf_da_upag;     
+			$result->items[$n]['exc_nome']   		         = $exc_nome; 
+			$result->items[$n]['exc_cpf']            		 = $exc_cpf;         
+			$result->items[$n]['exc_codigo_da_rubrica'] 	 = $exc_codigo_da_rubrica; 
+			$result->items[$n]['exc_sequencia_da_rubrica']   = $exc_sequencia_da_rubrica;         
+			$result->items[$n]['exc_valor_da_rubrica']       = $exc_valor_da_rubrica; 	
+			$result->items[$n]['exc_prazo_da_rubrica']       = $exc_prazo_da_rubrica;    
+			$result->items[$n]['exc_motivo']   				 = $exc_motivo; 
+			$result->items[$n]['exc_categoria_do_servidor']  = $exc_categoria_do_servidor;
+			$result->items[$n]['exc_contrato_consignataria'] = $exc_contrato_consignataria;  
+			$result->items[$n]['exc_assunto_calc']           = $exc_assunto_calc;  
+			$result->items[$n]['exc_percentual']           	 = $exc_percentual;  
+			$result->items[$n]['dt_competencia']             = $competencia;
+			$result->items[$n]['tipo_de_consignacao']        = $tipo_de_consignacao;		
+			$result->items[$n]['data_importacao']            = $data_importacao;
+			$result->items[$n]['idrubrexcluida']             = $key;			
+			if ($interrompe) {
+				$result->items[$n]['arquivo'] = $msg_erro;
+				drupal_set_message($msg_erro, 'erro');
+			}
+			else {
+				$result->items[$n]['arquivo'] = str_replace('private://feeds/','',$arquivo);
+				// Obtem idcpf do filiado.
+				$idcpf =  cf_import_siape_obter_relac_idcpf($exc_cpf);
+				$result->items[$n]['idcpf']['target_id'] = $idcpf;
+                // Obter idcodigoorgao do órgão
+				$idempresa =  cf_import_siape_obter_relac_idempresa($exc_codigo_do_orgao);
+				$result->items[$n]['idempresa']['target_id'] = $idempresa;	
+				
+			}
+			$n++;
+		} 
+	return($result);
+}

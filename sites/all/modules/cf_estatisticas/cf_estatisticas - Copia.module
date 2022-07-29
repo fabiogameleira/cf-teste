@@ -1,0 +1,309 @@
+<?php
+
+function cf_estatisticas_views_pre_render(&$view) {
+		
+  // estatistica
+ if ($view->name == 'estatistica_por_faixa_etaria') {
+	  $i = 0;
+	  $n = 0 ;
+	  $n20 = 0;
+	  $n30 = 0;
+	  $n40 = 0;
+	  $n50 = 0;
+	  $n60 = 0;
+	  $n70 = 0;
+	  $n80 = 0;
+	  $n90 = 0;
+	  $n100 = 0;
+	  $noutros = 0;
+	  $idade = 0;
+      $linha = '';
+	  $situacao ='';
+	  $sexo = '';
+	  $calc = array();
+	  $quebra = 0;
+	  
+	  foreach($view->result as $r => &$result) {
+		  
+		if (isset($result->field_field_data_de_nascimento[0]['rendered']['#markup'])) {
+			$idade = strip_tags($result->field_field_data_de_nascimento[0]['rendered']['#markup']);
+			$idade = str_replace(' anos','',$idade);
+		}
+		
+		if (!empty($idade)) {
+			$idade = intval($idade/10).'0';
+			$idade = $idade;
+        } else	{				
+		   $idade = 0;
+		} 
+
+		//$result->field_field_data_de_nascimento[0]['rendered']['#markup'] = $idade;
+		
+		if ($i > 0) {
+			
+			if (isset($result->field_field_situacaofiliado[0]['rendered']['#markup']))
+			{
+				$situacao_aux = $result->field_field_situacaofiliado[0]['rendered']['#markup'];
+			} else {
+				$situacao_aux = '';
+			}	
+			if ($situacao == $situacao_aux) {
+				if (isset($result->field_field_sexo[0]['rendered']['#markup']))
+				{
+					$sexo_aux = $result->field_field_sexo[0]['rendered']['#markup'];
+				} else {
+					$sexo_aux = '';
+				}		
+				if ($sexo == $sexo_aux ) {
+                    
+					$i = $i - 1;		
+					if (isset($result->field_field_situacaofiliado[0]['rendered']['#markup'])) {
+						$calc[$i]['situacao'] = $result->field_field_situacaofiliado[0]['rendered']['#markup'];
+					} else {
+						$calc[$i]['situacao'] = '';
+					}
+                    if (isset($result->field_field_sexo[0]['rendered']['#markup'])) {
+						$calc[$i]['sexo'] = $result->field_field_sexo[0]['rendered']['#markup'];
+					} else {
+						$calc[$i]['sexo'] = '';
+					}
+					$calc[$i]['Até 20']  = $n20;      
+					$calc[$i]['Até 30']  = $n30;		
+					$calc[$i]['Até 40']  = $n40;        
+					$calc[$i]['Até 50']  = $n50;
+					$calc[$i]['Até 60']  = $n60;
+					$calc[$i]['Até 70']  = $n70; 	
+					$calc[$i]['Até 80']  = $n80;
+					$calc[$i]['Até 90']  = $n90;
+					$calc[$i]['Até 100'] = $n100;
+					$calc[$i]['Outros']    = $noutros;				
+			    }
+			    else {
+
+				//dpm('--- quebra sexo ---');
+				if (isset($result->field_field_situacaofiliado[0]['rendered']['#markup'])) {
+					$calc[$i]['situacao'] = $result->field_field_situacaofiliado[0]['rendered']['#markup'];
+				} else {
+					$calc[$i]['situacao'] = '';
+				}
+				if (isset($result->field_field_sexo[0]['rendered']['#markup'])) {
+					$calc[$i]['sexo'] = $result->field_field_sexo[0]['rendered']['#markup'];
+				} else {
+					$calc[$i]['sexo'] = '';
+				}
+				
+				$calc[$i]['Até 20'] = 0;      
+				$calc[$i]['Até 30'] = 0;		
+				$calc[$i]['Até 40'] = 0;        
+				$calc[$i]['Até 50'] = 0;
+				$calc[$i]['Até 60'] = 0;
+				$calc[$i]['Até 70'] = 0; 	
+				$calc[$i]['Até 80'] = 0;
+				$calc[$i]['Até 90'] = 0;
+				$calc[$i]['Até 100'] = 0;
+				$calc[$i]['Outros']   = 0;
+				$n20 = 0; $n30 = 0; $n40 = 0; $n50 = 0; 
+				$n60 = 0; $n70 = 0; $n80 = 0; $n90 = 0; 
+				$n100 = 0; $noutros = 0;
+				
+			   }
+           } else { 
+
+		        //dpm('--- quebra situação ---');
+				if (isset($result->field_field_situacaofiliado[0]['rendered']['#markup'])) {
+					$calc[$i]['situacao'] = $result->field_field_situacaofiliado[0]['rendered']['#markup'];
+				} else {
+					$calc[$i]['situacao'] = '';
+				}
+				if (isset($result->field_field_sexo[0]['rendered']['#markup'])) {
+					$calc[$i]['sexo'] = $result->field_field_sexo[0]['rendered']['#markup'];
+				} else {
+					$calc[$i]['sexo'] = '';
+				}
+
+				$calc[$i]['Até 20']  = 0;      
+				$calc[$i]['Até 30']  = 0;		
+				$calc[$i]['Até 40']  = 0;        
+				$calc[$i]['Até 50']  = 0;
+				$calc[$i]['Até 60']  = 0;
+				$calc[$i]['Até 70']  = 0; 	
+				$calc[$i]['Até 80']  = 0;
+				$calc[$i]['Até 90']  = 0;
+				$calc[$i]['Até 100'] = 0;
+				$calc[$i]['Outros']   = 0;
+				$n20 = 0; $n30 = 0; $n40 = 0; $n50 = 0; 
+				$n60 = 0; $n70 = 0; $n80 = 0; $n90 = 0; 
+				$n100 = 0; $noutros = 0;
+		   }
+		} else {
+			//dpm('---Início---');
+			if (isset($result->field_field_situacaofiliado[0]['rendered']['#markup'])) {
+				$calc[$i]['situacao'] = $result->field_field_situacaofiliado[0]['rendered']['#markup'];
+			} else {
+				$calc[$i]['situacao'] = '';
+			}
+			if (isset($result->field_field_sexo[0]['rendered']['#markup'])) {
+				$calc[$i]['sexo'] = $result->field_field_sexo[0]['rendered']['#markup'];
+			} else {
+				$calc[$i]['sexo'] = '';
+			}
+			$calc[$i]['Até 20']  = 0;      
+			$calc[$i]['Até 30']  = 0;		
+			$calc[$i]['Até 40']  = 0;        
+			$calc[$i]['Até 50']  = 0;
+			$calc[$i]['Até 60']  = 0;
+			$calc[$i]['Até 70']  = 0; 	
+			$calc[$i]['Até 80']  = 0;
+			$calc[$i]['Até 90']  = 0;
+			$calc[$i]['Até 100'] = 0;
+			$calc[$i]['Outros']  = 0;			
+		}
+		
+		switch ($idade) {
+		  case 20:       
+            $n20 = $n20 + 1	;	  
+		    $calc[$i]['Até 20'] = $n20;      
+			break;
+		  case 30:
+		    $n30 = $n30 + 1;	
+		    $calc[$i]['Até 30'] = $n30; 	
+			break;
+		  case 40:
+		  	$n40 = $n40 + 1;
+		    $calc[$i]['Até 40'] = $n40; 			
+			break;
+		  case 50:
+		  	$n50 = $n50 + 1;
+		    $calc[$i]['Até 50'] = $n50; 			
+			break;
+		  case 60:
+		  	$n60 = $n60 + 1;
+		    $calc[$i]['Até 60'] = $n60; 			
+			break;	
+		  case 70:
+		    $n70 = $n70 + 1;
+		    $calc[$i]['Até 70'] = $n70; 
+			break;	
+		  case 80:
+		  	$n80 = $n80 + 1;
+			$calc[$i]['Até 80'] = $n80;				
+			break;	
+		  case 90:
+		  	$n90 = $n90 + 1;
+			$calc[$i]['Até 90'] = $n90; 
+			break;	
+		  case 100:
+		  	$n100 = $n100 + 1;
+			$calc[$i]['Até 100'] = $n100; 
+			break;				
+          default:	
+		    $noutros = $noutros + 1;
+		    $calc[$i]['Outros'] = $noutros;
+			break;		  
+		}
+		$situacao = $calc[$i]['situacao'];
+		$sexo = $calc[$i]['sexo'];
+		$i = $i + 1;
+
+      }
+	  //dpm($linha);
+	  $i = 0;
+      $tamCalc = sizeof($calc);
+	  $total = 0;	
+
+      
+	  //Preenche result com conteúdo do array agrupado.
+	  foreach($view->result as $r => &$result) {
+		
+		if (isset($calc[$i]['situacao'])){
+			$result->field_field_situacaofiliado[0]['rendered']['#markup'] = $calc[$i]['situacao'];
+		} else {
+			$calc[$i]['situacao'] = '';
+			$result->field_field_situacaofiliado[0]['rendered']['#markup'] = $calc[$i]['situacao'];
+		}
+		if (isset($calc[$i]['sexo'])) {
+			$result->field_field_sexo[0]['rendered']['#markup'] = $calc[$i]['sexo'] ;
+		} else {
+			$calc[$i]['sexo']='';
+			$result->field_field_sexo[0]['rendered']['#markup'] = $calc[$i]['sexo'] ;
+		}
+		if (isset($calc[$i]['Até 20'])) {		
+			$result->field_field_data_de_nascimento[0]['rendered']['#markup']  = $calc[$i]['Até 20'];
+        } else {
+			$calc[$i]['Até 20'] = 0;
+			$result->field_field_data_de_nascimento[0]['rendered']['#markup']  = $calc[$i]['Até 20'];
+		}
+		if (isset($calc[$i]['Até 30'])) {			
+ 			$result->field_field_data_de_nascimento_1[0]['rendered']['#markup'] = $calc[$i]['Até 30'];	
+		} else {
+			$calc[$i]['Até 30'] = 0;
+			$result->field_field_data_de_nascimento_1[0]['rendered']['#markup'] = $calc[$i]['Até 30'];	
+		}
+		if (isset($calc[$i]['Até 40'])) {			
+			$result->field_field_data_de_nascimento_2[0]['rendered']['#markup'] = $calc[$i]['Até 40'];
+        } else {
+			$calc[$i]['Até 40'] = 0;
+			$result->field_field_data_de_nascimento_2[0]['rendered']['#markup'] = $calc[$i]['Até 40'];
+		}
+		if (isset($calc[$i]['Até 50'])) {	
+			$result->field_field_data_de_nascimento_3[0]['rendered']['#markup'] = $calc[$i]['Até 50'];
+        } else {
+			$calc[$i]['Até 50']	= 0;		
+			$result->field_field_data_de_nascimento_3[0]['rendered']['#markup'] = $calc[$i]['Até 50'];			
+		}
+		if (isset($calc[$i]['Até 60'])) {			
+			$result->field_field_data_de_nascimento_4[0]['rendered']['#markup'] = $calc[$i]['Até 60'];
+		} else {
+			$calc[$i]['Até 60'] = 0;
+			$result->field_field_data_de_nascimento_4[0]['rendered']['#markup'] = $calc[$i]['Até 60'];			
+		}
+		if (isset($calc[$i]['Até 70'])) {			
+			$result->field_field_data_de_nascimento_5[0]['rendered']['#markup'] = $calc[$i]['Até 70'];
+		} else {
+			$calc[$i]['Até 70'] = 0;
+			$result->field_field_data_de_nascimento_5[0]['rendered']['#markup'] = $calc[$i]['Até 70'];			
+		}
+		if (isset($calc[$i]['Até 80'])) {			
+			$result->field_field_data_de_nascimento_6[0]['rendered']['#markup'] = $calc[$i]['Até 80'];
+		} else {
+			$calc[$i]['Até 80'] = 0;
+			$result->field_field_data_de_nascimento_6[0]['rendered']['#markup'] = $calc[$i]['Até 80'];
+		}
+		if (isset($calc[$i]['Até 90'])) {			
+			$result->field_field_data_de_nascimento_7[0]['rendered']['#markup'] = $calc[$i]['Até 90'];
+		} else {
+			$calc[$i]['Até 90'] = 0;			
+			$result->field_field_data_de_nascimento_7[0]['rendered']['#markup'] = $calc[$i]['Até 90'];			
+		}
+		if (isset($calc[$i]['Até 100'])) {			
+			$result->field_field_data_de_nascimento_8[0]['rendered']['#markup'] = $calc[$i]['Até 100'];
+		} else {
+			$calc[$i]['Até 100'] = 0;			
+			$result->field_field_data_de_nascimento_8[0]['rendered']['#markup'] = $calc[$i]['Até 100'];			
+		}
+		if (isset($calc[$i]['Outros'])) {	
+			$result->field_field_data_de_nascimento_9[0]['rendered']['#markup'] = $calc[$i]['Outros'];
+		} else {
+			$calc[$i]['Outros'] = 0;
+			$result->field_field_data_de_nascimento_9[0]['rendered']['#markup'] = $calc[$i]['Outros'];
+		}
+					
+		$total = $calc[$i]['Até 20'] + $calc[$i]['Até 30'] + $calc[$i]['Até 40'] + $calc[$i]['Até 50'] + $calc[$i]['Até 60'];
+		$total = $total + $calc[$i]['Até 70'] + $calc[$i]['Até 80']+ $calc[$i]['Até 90'] + $calc[$i]['Até 100'] + $calc[$i]['Outros'];
+		$result->field_field_data_de_nascimento_10[0]['rendered']['#markup'] = $total;
+
+		if ( $i < ($tamCalc) ) {
+			$i = $i + 1 ;	
+		}
+		else {	
+		 // Elimina results não usados.
+		   $i = $i + 1 ;
+           unset($view->result[$r]);
+		}
+		
+	  }
+
+  }
+	
+}
+

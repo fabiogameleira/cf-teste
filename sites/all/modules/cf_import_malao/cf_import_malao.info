@@ -1,0 +1,4 @@
+name = cf_import_malao
+description = Importar dados do Malão para popular a base do CF
+core = 7.x
+package = Other

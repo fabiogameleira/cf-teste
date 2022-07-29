@@ -1,0 +1,296 @@
+<?php
+
+/* GRAVA COMANDO DO CONSIGSIAPE */
+function my_module_consigsiape_grava_temporario($comando,$cpf) {
+	
+	$queryfiliado = new EntityFieldQuery();	
+	$result = $queryfiliado->entityCondition('entity_type', 'node')
+	->entityCondition('bundle', 'filiado')
+	->propertyCondition('status', NODE_PUBLISHED)
+	->fieldCondition('field_cpf', 'value',$cpf, '=')
+	->execute();
+    
+	if (!empty($result)){
+		// Achou filiado com o mesmo cpf				
+		$filiados = node_load_multiple(array_keys($result['node']));	
+		foreach ($filiados as $filiado) { 
+		    
+			$nome 	= $filiado->field_nome['und'][0]['value'];
+			$cpf 	= $filiado->field_cpf['und'][0]['value'];
+			$siape 	= $filiado->field_siape['und'][0]['value'];
+			$situacao_funcional = taxonomy_term_load($filiado->field_situacao_funcional['und'][0]['tid']);
+			$situacao_funcional = $situacao_funcional->name;	
+            			
+			if (isset($filiado->field_siape_inst['und'][0]['value'])) {
+				$siape_instituidor = $filiado->field_siape_inst['und'][0]['value'];
+			}
+										
+			$anomes = date("Y/m/d H:i:s");
+			$contrato = ' ';
+
+			// obtem descrição da situação funcional
+                              					  
+			if 	(strtolower($situacao_funcional) == 'pensionista') {
+			   // Se pensionista
+			   $siape = $filiado->field_siape_inst['und'][0]['value'];
+			   $siape_benef_pensao = $filiado->field_siape['und'][0]['value'];
+			   $contrato = $siape_benef_pensao .'-'. str_replace('/','',substr($anomes,0,10));																															
+			} else {
+			   // Se servidor
+			   $siape   			= $filiado->field_siape['und'][0]['value'];
+			   $siape_benef_pensao = ' ';
+			   $siape_benef_pensao  = str_pad($siape_benef_pensao , 8 , ' ');
+			   $contrato = $siape .'-'. str_replace('/','',substr($anomes,0,10));
+			} 
+			
+			$node_consigsiape = new stdClass();  // Create a new node object
+			$node_consigsiape->type = 'consigsiape'; 
+			node_object_prepare($node_consigsiape);
+			$node_consigsiape->field_ano_mes['und'][0]['value'] = $anomes;
+			$node_consigsiape->field_matricula_serv_inst['und'][0]['value'] = $siape;
+			$node_consigsiape->field_matricula_pen_ser['und'][0]['value'] = $siape_benef_pensao;
+			$node_consigsiape->field_comando['und'][0]['value'] = $comando;
+			$node_consigsiape->field_contrato['und'][0]['value'] = $contrato;
+			$node_consigsiape->field_cpf['und'][0]['value'] = $cpf;
+			$node_consigsiape->field_nome['und'][0]['value'] = $nome;
+			node_save($node_consigsiape);
+		}
+	} 
+}
+
+function my_module_consigsiape_grava_consigsiape($ano, $mes, $data_hora,$arquivo_name) {
+	
+	// Chamado de my_module_views_pre_render
+	
+	$processamento_ano = $ano;
+	$processamento_mes 	= $mes;
+	$anomes = $ano.'/'.$mes.'/'.'01'.' 00:00:00';
+	
+	$queryconsigsiape = new EntityFieldQuery();	
+	$result = $queryconsigsiape->entityCondition('entity_type', 'node')
+	->entityCondition('bundle', 'consigsiape')
+	->propertyCondition('status', NODE_PUBLISHED)
+	->fieldCondition('field_status_consigsiape', 'value',0, '=')
+	->execute();
+    $msg ='';
+	if (!empty($result)){
+		
+		// Output into a txt file
+		//if (file_exists($arquivo_name)) {
+		//	unlink($arquivo_name);
+		//	dpm('arquivo excluido');
+		//}
+		$txt_file = fopen($arquivo_name, 'w'); // or die('Cant open file!');
+		if ($txt_file ) {
+			$tipo_0 = my_module_consigsiape_grava_header($processamento_ano, $processamento_mes);	
+			fputs($txt_file, $tipo_0.PHP_EOL);
+			
+			$consigsiapes = node_load_multiple(array_keys($result['node']));
+			$count = 0;		
+			foreach ($consigsiapes as $consigsiape) { 
+				$numero_matricula 				= $consigsiape->field_matricula_serv_inst['und'][0]['value']; 
+				if (isset($consigsiape->field_matricula_pen_ser['und'][0]['value'])) {
+					$matricula_benef_pensao 		= $consigsiape->field_matricula_pen_ser['und'][0]['value'];
+				} else 
+				{
+				  $matricula_benef_pensao = ' ';
+				  $matricula_benef_pensao = str_pad($matricula_benef_pensao,8,' ');
+				}
+				$comando						= $consigsiape->field_comando['und'][0]['value'];
+				$numero_contrato				= $consigsiape->field_contrato['und'][0]['value'];
+				$nome                           = $consigsiape->field_nome['und'][0]['value'];
+				$assunto_calculo_parametrizado	= '15' ;
+				
+				$tipo_1 = my_module_consigsiape_grava_dados_contrato($numero_matricula,$matricula_benef_pensao,$comando,$numero_contrato,$assunto_calculo_parametrizado);
+				
+				//dpm(strlen($tipo_1));
+				//dpm($tipo_1);
+				// grava consigsiape
+				
+				//$node_consigsiape = new stdClass();  // Create a new node object
+				//$node_consigsiape->type = 'consigsiape'; 
+				//node_object_prepare($node_consigsiape);
+				
+				//$consigsiapes->field_matricula_serv_inst['und'][0]['value'] = $numero_matricula;
+				//$consigsiapes->field_nome['und'][0]['value'] = $nome;
+				//$consigsiapes->field_comando['und'][0]['value'] = $comando;
+				$consigsiape->field_ano_mes['und'][0]['value'] = $anomes;
+				$consigsiape->field_status_consigsiape['und'][0]['value'] = 1;
+				$consigsiape->field_data_consigsiape['und'][0]['value'] = $data_hora ;
+				node_save($consigsiape);
+				
+				fputs($txt_file, $tipo_1.PHP_EOL);
+				$count = $count + 1;
+			}
+			//$tipo_2 = my_module_consigsiape_grava_consignacao();
+			//fputs($txt_file, $tipo_2.PHP_EOL);
+			
+			$tipo_9 = my_module_consigsiape_grava_trailler($count);
+			fputs($txt_file, $tipo_9);
+			
+			fclose($txt_file);
+			$msg = 'Arquivo gerado';
+		} else {
+			$msg = 'Falha ao criar o arquivo';
+	    }
+	}	
+	return($msg);
+}
+
+function my_module_consigsiape_grava_consigsiape_avulso($ano, $mes, $siape, $siape_benef_pensao,$comando,$contrato) {
+	
+$processamento_ano  			= $ano;
+ if (strlen($mes) < 2) {
+	 $mes = '0'.$mes;
+ }
+$processamento_mes  			= $mes;
+$numero_matricula   			= $siape;
+$matricula_benef_pensao 		= $siape_benef_pensao;
+$comando = $comando;
+$assunto_calculo_parametrizado 	= '15';
+$numero_contrato 				= $contrato;
+//$linha = 'Ano: '. $ano. ' | Mes: '. $mes. ' | Siape: '. $siape. ' | Siape beneficiario: '.$siape_benef_pensao. ' | Comando: '. $comando. ' | Contrato: ' . $contrato ;
+//dpm($linha);
+
+$tipo_0 = my_module_consigsiape_grava_header($processamento_ano, $processamento_mes);
+//dpm(strlen($tipo_0));
+
+$tipo_1 = my_module_consigsiape_grava_dados_contrato($numero_matricula,$matricula_benef_pensao,$comando,$numero_contrato,$assunto_calculo_parametrizado);
+//dpm(strlen($tipo_1));
+
+//$tipo_2 = my_module_consigsiape_grava_consignacao();
+//dpm(strlen($tipo_2));
+
+$tipo_9 = my_module_consigsiape_grava_trailler(1);
+//dpm(strlen($tipo_9));
+
+$consigsiape = $tipo_0.PHP_EOL.$tipo_1.PHP_EOL.$tipo_9;
+
+$arquivo_name = 'consigsiape-'.$processamento_ano.$processamento_mes.'-avulso.txt'; 
+$file = file_save_data($consigsiape,'private://consigsiape/' .$arquivo_name, $replace = FILE_EXISTS_REPLACE);
+
+//file_put_contents('consigsiape.txt', print_r($consigsiape, true));
+
+return ($file);
+}
+
+
+function my_module_consigsiape_filler($tamanho,$tipo) {
+	
+	$filler = $tipo;
+	
+	for ($i=1; $i < $tamanho; $i++) {
+		$filler = $filler . $tipo;
+	}
+	return ($filler);
+}
+
+
+function my_module_consigsiape_grava_header($ano,$mes) {
+
+
+
+$tipo_registro    		= '0';				// Numérico	1
+$processamento_ano   	= $ano;  	 		// Numérico 4 (9999) -  Ano de pagamento (4 dígitos) ]
+$processamento_mes   	= $mes;		 		// Numérico 2 (99) -  Mês de pagamento
+$pj_consignataria    	= '29213055000161';	// Numérico 14 - N = Número do CNPJ da Consignatária
+$constante 		     	= 'CONSIGSIAPE'; 	// Alfanumérico 11
+$filler 			 	= my_module_consigsiape_filler(521 , ' '); 
+
+$tipo_0 = $tipo_registro . $processamento_ano . $processamento_mes . $pj_consignataria . $constante .$filler ;
+
+return($tipo_0);
+}
+
+function my_module_consigsiape_grava_dados_contrato($numero_matricula,$matricula_benef_pensao,$comando,$numero_contrato,$assunto_calculo_parametrizado) {
+	
+$tipo_registro							= '1';									// Numérico	1
+$orgao_siape							= '26201';								// Numérico	5
+
+$numero_matricula 						= str_pad(trim($numero_matricula),7,'0',STR_PAD_LEFT);					// Numérico	7
+//$linha = "matricula: " .$numero_matricula. ' tamanho: '.strlen($numero_matricula);
+//dpm($linha);
+
+$matricula_benef_pensao                 = str_pad(trim($matricula_benef_pensao),8,'0',STR_PAD_LEFT);
+//$linha = "matricula_benef_pensao: " .$matricula_benef_pensao. ' tamanho: '.strlen($matricula_benef_pensao);
+//dpm($linha);
+
+$comando								= $comando;								// Numérico	1
+$numero_contrato						= str_pad(trim($numero_contrato),20,' ');
+//$linha = "contrato: " .$numero_contrato. ' tamanho: '.strlen($numero_contrato);
+//dpm($linha);
+
+// Alfanumérico	20
+$rubrica								= '34477';								// Numérico	5
+$sequencia								= '1';									// Numérico	1
+$valor									= my_module_consigsiape_filler( 11 , '0'); 
+$prazo									= my_module_consigsiape_filler( 3 , '0'); 
+$valor_bruto_contrato					= my_module_consigsiape_filler( 11 , '0'); 
+$valor_liquido_creditado				= my_module_consigsiape_filler( 11 , '0'); 
+$iof									= my_module_consigsiape_filler( 7 , '0'); 
+$taxa_Juros_Mensal						= my_module_consigsiape_filler( 7 , '0'); 
+$cet									= my_module_consigsiape_filler( 7 , '0'); 
+$data_limite_anuencia					= my_module_consigsiape_filler( 8 , '0'); 
+$email_contratante_1					= my_module_consigsiape_filler( 60 , ' '); 
+$email_contratante_2					= my_module_consigsiape_filler( 60 , ' '); 
+$email_contratante_3					= my_module_consigsiape_filler( 60 , ' '); 
+$cnpj_portabilidade						= my_module_consigsiape_filler( 14 , '0'); 
+$contrato_portabilidade					= my_module_consigsiape_filler( 20 , ' ');
+$data_cip								= my_module_consigsiape_filler( 8 , '0'); 
+$codigo_cip								= my_module_consigsiape_filler( 21 , ' '); 
+$contrato_renovacao_1                   = my_module_consigsiape_filler( 20 , ' '); 
+$contrato_renovacao_2					= my_module_consigsiape_filler( 20 , ' '); 
+$contrato_renovacao_3					= my_module_consigsiape_filler( 20 , ' '); 
+$contrato_renovacao_4					= my_module_consigsiape_filler( 20 , ' '); 
+$contrato_renovacao_5					= my_module_consigsiape_filler( 20 , ' '); 
+$contrato_renovacao_6					= my_module_consigsiape_filler( 20 , ' '); 
+$contrato_renovacao_7					= my_module_consigsiape_filler( 20 , ' '); 
+$contrato_renovacao_8					= my_module_consigsiape_filler( 20 , ' '); 
+$assunto_calculo_parametrizado			= str_pad(trim($assunto_calculo_parametrizado),2,'0'); // Numérico	2
+//$linha = "assunto_calculo_parametrizado: " .$assunto_calculo_parametrizado. ' tamanho: '.strlen($assunto_calculo_parametrizado);
+//dpm($linha);
+$percentual								= '00100';						  // Numérico	5
+$rubrica_calculo_1						= my_module_consigsiape_filler( 5 , '0'); 
+$rubrica_calculo_2						= my_module_consigsiape_filler( 5 , '0'); 
+$rubrica_calculo_3						= my_module_consigsiape_filler( 5 , '0'); 
+$rubrica_calculo_4						= my_module_consigsiape_filler( 5 , '0'); 
+$rubrica_calculo_5						= my_module_consigsiape_filler( 5 , '0'); 
+$rubrica_calculo_6						= my_module_consigsiape_filler( 5 , '0'); 
+$ano_mes_carencia                       = my_module_consigsiape_filler( 6 , ' '); 
+
+$tipo_1 = $tipo_registro. $orgao_siape.$numero_matricula.$matricula_benef_pensao.$comando.$numero_contrato.$rubrica.$sequencia;
+$tipo_1 = $tipo_1 .$valor.$prazo.$valor_bruto_contrato.$valor_liquido_creditado.$iof.$taxa_Juros_Mensal.$cet.$data_limite_anuencia;
+$tipo_1 = $tipo_1 .$email_contratante_1.$email_contratante_2.$email_contratante_3.$cnpj_portabilidade.$contrato_portabilidade;
+$tipo_1 = $tipo_1 .$data_cip.$codigo_cip.$contrato_renovacao_1 .$contrato_renovacao_2.$contrato_renovacao_3.$contrato_renovacao_4;
+$tipo_1 = $tipo_1 .$contrato_renovacao_5.$contrato_renovacao_6.$contrato_renovacao_7.$contrato_renovacao_8.$assunto_calculo_parametrizado;
+$tipo_1 = $tipo_1 .$percentual.$rubrica_calculo_1.$rubrica_calculo_2.$rubrica_calculo_3.$rubrica_calculo_4.$rubrica_calculo_5.$rubrica_calculo_6;
+$tipo_1 = $tipo_1 .$ano_mes_carencia; 
+
+
+  return($tipo_1);
+}
+
+function my_module_consigsiape_grava_consignacao() {
+
+$tipo_registro	= '2';	// Numérico	1
+$url_anuencia 	= my_module_consigsiape_filler( 250 , ' '); 
+$url_rejeicao 	= my_module_consigsiape_filler( 250 , ' '); 
+$filler 	    = my_module_consigsiape_filler( 52 , ' '); 
+
+$tipo_2 = $tipo_registro. $url_anuencia . $url_rejeicao. $filler;
+
+return($tipo_2);
+}
+
+function my_module_consigsiape_grava_trailler($qtd) {
+	
+$tipo_registro    		= '9';			// Numérico	1
+$quantidade_registro 	= str_pad(trim($qtd) ,7, '0',STR_PAD_LEFT); 	//  Qtd registros tipo 1, completando com zeros à esquerda.
+$filler 			 	= my_module_consigsiape_filler( 545 , ' '); 
+
+$tipo_9 = $tipo_registro. $quantidade_registro. $filler ;
+
+return($tipo_9);
+
+}
+

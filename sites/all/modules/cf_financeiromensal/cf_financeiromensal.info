@@ -1,0 +1,4 @@
+name = cf financeiro mensal
+description = Funções específicas para tratamento das consultas do menu Financeiro.
+core = 7.x
+package = Other

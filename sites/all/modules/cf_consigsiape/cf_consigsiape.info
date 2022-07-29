@@ -1,0 +1,4 @@
+name = cf_consigsiape
+description = Trata geração do consigsiape
+core = 7.x
+package = Other

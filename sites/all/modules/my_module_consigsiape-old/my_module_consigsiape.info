@@ -1,0 +1,4 @@
+name = my_module_consigsiape
+description = Trata geração do consigsiape
+core = 7.x
+package = Other

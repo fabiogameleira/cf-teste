@@ -1,0 +1,611 @@
+<?php
+
+
+function cf_financeiromensal_form_alter(&$form, &$form_state, $form_id) {
+	// feito em 11/05/2022
+  
+	if ($form_id == 'views_exposed_form') { 
+	    if ($form_state['view']->name == 'financeiro_mensal_diferencas_de_consignacoes') {
+			$form['#validate'][] = 'cf_financeiromensal_form_validate_diferenca'; 
+		} 
+	}
+}
+
+function cf_financeiromensal_form_validate_diferenca($form, &$form_state) {
+	// feito em 11/05/2022
+	// verificar se foi informado um mês/ano maior que o corrente.
+	
+	
+	$competencia = $form['field_dt_competencia_value']['value']['#default_value'];
+	$mesdefault = $form['field_dt_competencia_value']['value']['month']['#default_value'];
+	$anodefault = $form['field_dt_competencia_value']['value']['year']['#default_value'];
+	$proximacompetencia = '';
+	
+	if (!empty($form['field_dt_competencia_value']['value']['#value']['month'])) {
+		$mes = $form['field_dt_competencia_value']['value']['#value']['month'];
+	}
+	if (!empty($form['field_dt_competencia_value']['value']['#value']['year'])) {
+		$ano = $form['field_dt_competencia_value']['value']['#value']['year'];
+	}
+	if ( (isset($mes)) and (isset($ano)) ) {
+	    $ano = strval($ano);
+	    $mes = strval($mes);
+		if ($ano = date("Y")){
+			if ($mes >= date('n')) {
+			  $msg = 'Erro! Informe um mês de competência menor que o mês corrente';
+			  form_set_error('Competência', $msg );
+			}
+		}
+		// obtem próxima competência	
+		$proximacompetencia = cf_financeiromensal_proximacompetencia($ano,$mes);
+		//dpm($proximacompetencia);
+
+		// transforma proxima comptencia e data para pesquisa em consignacao
+		$proximacompetencia_data = $proximacompetencia.'-01';
+
+		//Verifica se existe consignação para o mês/ano final a ser comparado
+		$queryconsignacao = new EntityFieldQuery();	
+		$result = $queryconsignacao->entityCondition('entity_type', 'node')
+		->entityCondition('bundle', 'consignacao')
+		->propertyCondition('status', NODE_PUBLISHED)
+		->fieldCondition('field_dt_competencia', 'value', $proximacompetencia_data, '=')
+		->execute();
+
+		if (empty($result)) {
+			
+			$competencia_mes = cf_financeiromensal_abreviatura_nome_do_mes($mes);
+			$proximacompetencia_mes = cf_financeiromensal_abreviatura_nome_do_mes(substr($proximacompetencia,5,2));
+			$proximacompetencia_ano = substr($proximacompetencia,0,4); 
+			
+			$msg = 'Não existem consignações carregadas na competência ';
+			$msg = $msg . $proximacompetencia_mes .'/'. $proximacompetencia_ano ;
+			$msg = $msg . '<br>Informe um competência inicial menor que ' . $competencia_mes .'/'.$ano;
+			form_set_error('Competência', $msg );
+		}
+	}		
+}
+
+function cf_financeiromensal_abreviatura_nome_do_mes($mes) {
+// Recebe mês numérico e retoran a abrviatura do mês.
+
+$nome = array('jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez');
+	
+return $nome[$mes-1];
+
+}
+
+function cf_financeiromensal_proximacompetencia($ano,$mes) {
+	// Obtem o próximo mês/ano de competênica
+	
+	$comp_proxima = '';
+	$soma = 1 ;
+	if ($mes + 1 > 12) {
+	  $comp_ano_proxima = $ano + 1;
+	  $comp_mes_proxima = $soma;
+	} else {
+	  $comp_ano_proxima = $ano;
+	  $comp_mes_proxima = $mes + $soma;			  
+	}
+	$comp_proxima = $comp_ano_proxima.'-'.str_pad(trim($comp_mes_proxima),2,'0',STR_PAD_LEFT);
+	
+	return $comp_proxima;
+}
+
+function cf_financeiromensal_views_query_alter(&$view, &$query) {
+  global $user;
+  //dpm('view');
+  //dpm('query');
+  //dpm($query->where[1]['conditions'][2]['field']);
+
+  //dpm($query->where[1]['conditions'][2]['operator']);
+  if (($view->name === 'financeiro_mensal_diferencas_de_consignacoes') or
+      ($view->name === 'financeiro_pagamentos_do_filiado')) {
+		 
+	//dpm($query->where[1]['conditions'][2]['value']);
+    //dpm($query->where[1]['conditions'][3]['value']);
+    //dpm($query->where[1]['conditions'][2]['value'][':field_data_field_dt_competencia_field_dt_competencia_value']);
+	//$comp_inicial =  $query->where[1]['conditions'][2]['value'][':field_data_field_dt_competencia_field_dt_competencia_value']; 
+	$comp_inicial = str_replace('-','',$query->where[1]['conditions'][2]['value'][':field_data_field_dt_competencia_field_dt_competencia_value']);
+	$comp_inicial_ano = substr($comp_inicial,0,4);
+	$comp_inicial_mes = substr($comp_inicial,4,2);
+    
+	//dpm($comp_inicial_ano.'-'.$comp_inicial_mes);
+	
+	$comp_ano = intval($comp_inicial_ano);
+    $comp_mes = intval($comp_inicial_mes);
+	
+	if ($view->name === 'financeiro_mensal_diferencas_de_consignacoes') {
+		$soma = 1 ;
+		if ($comp_mes + 1 > 12) {
+		  $comp_ano_final = $comp_ano + 1;
+		  $comp_mes_final = $soma;
+		} else {
+		  $comp_ano_final = $comp_ano;
+		  $comp_mes_final = $comp_mes + $soma;			  
+		}
+		$comp_final = $comp_ano_final.'-'.str_pad(trim($comp_mes_final),2,'0',STR_PAD_LEFT);
+	    $query->where[1]['conditions'][3]['value'][':field_data_field_dt_competencia_field_dt_competencia_value1'] = $comp_final;	
+	}	 
+	
+	if ($view->name === 'financeiro_pagamentos_do_filiado') {
+		$soma = 11;         
+
+		if ($comp_mes + 11 > 12) {
+		  $comp_ano_final = $comp_ano + 1;
+		  $comp_mes_final = ($comp_mes+$soma) - 12 ;
+		} else {
+		  $comp_ano_final = $comp_ano;
+		  $comp_mes_final = $comp_mes + $soma;			  
+		}
+		$comp_final = $comp_ano_final.'-'.str_pad(trim($comp_mes_final),2,'0',STR_PAD_LEFT);
+	 }		
+	  
+	  
+      //dpm($comp_final);
+	//$query->where[1]['conditions'][3]['field']['value'] = $comp_final;
+	//$query->where[1]['conditions'][3]['value'][':field_data_field_dt_competencia_field_dt_competencia_value1'] = $comp_final;
+	//dpm($query->where[1]['conditions'][3]['value'][':field_data_field_dt_competencia_field_dt_competencia_value1']);
+    //$query->where[1]['conditions'][3]['field']['value'] = $comp_final;
+  }
+}
+
+function cf_financeiromensal_views_pre_render(&$view) {
+  
+  	if (($view->name == 'financeiro_pagamentos_do_filiado'))	{
+      if (!empty($view->result)) {
+		  global $user;
+		  $comp = array();
+		  $filters = $view->exposed_data['field_dt_competencia_value']['value'];
+		  $comp_inicial = str_replace('-','',$filters);
+		  $comp_inicial_ano = substr($filters,0,4);
+		  $comp_inicial_mes = substr($filters,5,2);
+
+		  $i=1;
+		  $comp_ano = intval($comp_inicial_ano);
+		  $comp_mes = intval($comp_inicial_mes);
+		  //dpm($view);
+		  //202001 202002 202003 202004 202005 202006 202007 202008 202009 202010 202011 202012
+		  //202012 202101 202102 202103 202105 202105 202106 202107 202108 202109 202110 202111
+		  $mes = array('jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez');
+		  
+		  While ($i <= 12) {
+			  
+			  if ($comp_mes < 10) {
+				 $comp[$comp_ano .'0'. $comp_mes][0] = str_replace($comp_mes,$mes[($comp_mes-1)],$comp_mes).'/'. $comp_ano;  
+				 $comp[$comp_ano .'0'. $comp_mes][1] = ''; 
+			  }
+			  else {
+				 $comp[$comp_ano . $comp_mes][0] = str_replace($comp_mes,$mes[$comp_mes-1],$comp_mes).'/'.$comp_ano; 
+				 $comp[$comp_ano . $comp_mes][1] = ''; 
+			  }
+			  
+			  if ($comp_mes + 1 > 12) {
+				  $comp_ano = $comp_ano + 1;
+				  $comp_mes = 1;
+			  } else {
+				  $comp_mes = $comp_mes + 1;			  
+			  }
+			  $i++;
+		  }
+			 $i = 0;
+			 $armazena = array();
+			 foreach ($comp as $titulo) {
+			 switch ($i) {		 
+				 case 0:
+					 $view->field['field_val_rubrica_1']->options['label'] = $titulo[0];
+					 break;
+				 case 1:
+					$view->field['field_val_rubrica_2']->options['label'] = $titulo[0];
+					 break;			 
+				 case 2:
+					$view->field['field_val_rubrica_3']->options['label'] = $titulo[0];
+					 break;			 
+				 case 3:
+					$view->field['field_val_rubrica_4']->options['label'] = $titulo[0];
+					break;
+				 case 4:
+					$view->field['field_val_rubrica_5']->options['label'] = $titulo[0];
+					break;
+				 case 5:
+					$view->field['field_val_rubrica_6']->options['label'] = $titulo[0];
+					break;
+				 case 6:
+					$view->field['field_val_rubrica_7']->options['label'] = $titulo[0];
+					break;
+				 case 7:
+					$view->field['field_val_rubrica_8']->options['label'] = $titulo[0];
+					break;
+				 case 8:
+					$view->field['field_val_rubrica_9']->options['label'] = $titulo[0];
+					break;			
+				 case 9:
+					$view->field['field_val_rubrica_10']->options['label'] = $titulo[0];
+					break;			
+				 case 10:
+					$view->field['field_val_rubrica_11']->options['label'] = $titulo[0];
+					break;	
+				 case 11:
+					$view->field['field_val_rubrica_12']->options['label'] = $titulo[0];
+					break;					
+				 default:
+					break;		 
+				 }
+				 $i++;
+				}
+
+			$nome = $view->result[0]->field_data_field_nome_da_pensionista_field_nome_da_pensionis;
+
+			$nome = "";
+			$nome_aux = $nome;	           
+			$comp_aux = $comp;
+			$n = 0;
+			$qtdocorrencias = 0; 
+
+			foreach($view->result as $r => &$result) {		 
+			
+				$nome = $result->field_field_nome_da_pensionista[0]['rendered']['#markup'];
+				
+				// limpa valores
+				$result->field_field_val_rubrica_1[0]['rendered']['#markup']    = " ";
+				$result->field_field_val_rubrica_2[0]['rendered']['#markup']    = " ";
+				$result->field_field_val_rubrica_3[0]['rendered']['#markup']    = " ";
+				$result->field_field_val_rubrica_4[0]['rendered']['#markup']    = " ";
+				$result->field_field_val_rubrica_5[0]['rendered']['#markup']    = " ";
+				$result->field_field_val_rubrica_6[0]['rendered']['#markup']    = " ";
+				$result->field_field_val_rubrica_7[0]['rendered']['#markup']    = " ";
+				$result->field_field_val_rubrica_8[0]['rendered']['#markup']    = " ";
+				$result->field_field_val_rubrica_9[0]['rendered']['#markup']    = " ";
+				$result->field_field_val_rubrica_10[0]['rendered']['#markup']   = " ";
+				$result->field_field_val_rubrica_11[0]['rendered']['#markup']   = " ";
+				$result->field_field_val_rubrica_12[0]['rendered']['#markup']   = " ";
+
+				 if ($nome != $nome_aux) {	
+					$qtdocorrencias = 1;			 
+					$nome_aux = $nome;
+					$result->nid = $qtdocorrencias;
+					//limpa 
+					$comp_aux = $comp;
+				 }
+				 else
+				 { 
+					$qtdocorrencias++;
+					$result->nid = $qtdocorrencias;
+				 } 
+			 // Obtem competencia e valor de result
+			 $comp_num = str_replace('-','',substr($result->field_data_field_dt_competencia_field_dt_competencia_value,0,7));
+			 //$comp_num = str_replace('-','',substr($result->field_field_dt_competencia[0]['rendered']['#markup'],0,7));
+			 $competencia = trim(strip_tags($result->field_field_dt_competencia[0]['rendered']['#markup']));
+			 
+			 $valor = $result->field_field_val_rubrica[0]['rendered']['#markup'];
+			 //$linha = $nome .' | '. $competencia.' | '. $comp_num.' | '. $valor;
+			 // Guarda competencia e valor lido em comp_aux
+			 $comp_aux[$comp_num][0] = $competencia;
+			 $comp_aux[$comp_num][1] = $valor;	  
+
+			 //Verifica a posição sequencial do item no array comp_aux
+			 $pos = 0;
+			 $pos = array_search($comp_num, array_keys($comp_aux));	
+			 
+			 // Preenche as comp e val auxiliares do result	
+			 $i = 0;
+			 $armazena = array();
+			 foreach ($comp_aux as $armazena) {		 
+			 
+				 switch ($i) {		 
+				 case 0:
+					$result->field_field_val_rubrica_1[0]['rendered']['#markup']    = $armazena[1];
+					break;
+				 case 1:
+					$result->field_field_val_rubrica_2[0]['rendered']['#markup']    = $armazena[1];
+					break;
+				 case 2:
+					$result->field_field_val_rubrica_3[0]['rendered']['#markup']    = $armazena[1];
+					break;
+				 case 3:
+					$result->field_field_val_rubrica_4[0]['rendered']['#markup']    = $armazena[1];
+					break;
+				 case 4:
+					$result->field_field_val_rubrica_5[0]['rendered']['#markup']    = $armazena[1];
+					break;
+				 case 5:
+					$result->field_field_val_rubrica_6[0]['rendered']['#markup']    = $armazena[1];
+					break;
+				 case 6:
+					$result->field_field_val_rubrica_7[0]['rendered']['#markup']    = $armazena[1];
+					break;
+				 case 7:
+					$result->field_field_val_rubrica_8[0]['rendered']['#markup']    = $armazena[1];
+					break;			
+				 case 8:
+					$result->field_field_val_rubrica_9[0]['rendered']['#markup']    = $armazena[1];
+					break;			
+				 case 9:
+					$result->field_field_val_rubrica_10[0]['rendered']['#markup']    = $armazena[1];
+					break;			
+				 case 10:
+					$result->field_field_val_rubrica_11[0]['rendered']['#markup']    = $armazena[1];
+					break;			
+				 case 11:
+					$result->field_field_val_rubrica_12[0]['rendered']['#markup']    = $armazena[1];
+					break;
+				 case 12:
+					$result->field_field_val_rubrica_13[0]['rendered']['#markup']    = $armazena[1];
+					break;				
+				 default:
+					break;		 
+				 }
+				 $i++;
+				}		
+			}
+			
+			// Inverte ordem do array mostrando primeiro a útlima ocorrência
+			// que é a que está completa.
+			$view->result = array_reverse($view->result);
+			
+			// Mantém a primeira ocorrência de cada filiado e apaga as demais
+			//dpm($view->result[0]);
+
+			$nome_aux = $nome;	           
+			$linha = '';
+			$qtd  = $view->result[0]->nid;
+			$ocorrencia = $qtd;
+					
+			// Carrega pagamentos_do_filiado com o resultado da view
+			foreach($view->result as $r => &$result) {	
+					
+				$nome = $result->field_field_nome_da_pensionista[0]['rendered']['#markup'];		   
+
+				if ($nome != $nome_aux) {	
+					$nome = $result->field_field_nome_da_pensionista[0]['rendered']['#markup'];	
+					//$nome = $result->field_data_field_nome_da_pensionista_field_nome_da_pensionis;
+					$nome_aux = $nome;	           
+					$linha = '';
+					$qtd  = $result->nid;
+					$ocorrencia = $qtd;
+				}
+				
+				if ($ocorrencia != $result->nid ) {
+					//$linha = 'apaga-> '.$ocorrencia. ' - '. $result->nid . ' - '.$result->field_field_matricula_pen_ser[0]['rendered']['#markup'].' - '.$result->field_field_nome_da_pensionista[0]['rendered']['#markup'];
+					//unset($view->result[$r]);
+					cf_geral_deleteFromArray($view->result, $result, FALSE);
+					//dpm($linha);
+				} else {
+
+				} 
+
+			}
+			$view->result = array_reverse($view->result);
+			//Volta Result para ordem original;
+		 }
+	}
+  
+  	if (($view->name == 'financeiro_mensal_diferencas_de_consignacoes')) {
+        // Comentário
+		// View    : financeiro-mensal-diferencas-de-consignacoes (Formulário exposto)
+		// Conteúdo: Financeiro mensal - diferenças entre consignações
+		// Bloco   : Formulário exposto: financeiro_mensal_diferencas_de_consignacoes-page_1
+		             //Exibir em :
+					 //financeiro-mensal-diferencas-entre-consignacoes
+					 //financeiro-mensal-diferencas-de-consignacoes
+	  
+	  if (!empty($view->result)) {
+		  global $user;
+		  $comp = array();
+		  $filters = $view->exposed_data['field_dt_competencia_value']['value'];
+		  $comp_inicial = str_replace('-','',$filters);
+		  $comp_inicial_ano = substr($filters,0,4);
+		  $comp_inicial_mes = substr($filters,5,2);
+		  //dpm($comp_inicial_mes);
+		  $i=1;
+		  $comp_ano = intval($comp_inicial_ano);
+		  $comp_mes = intval($comp_inicial_mes);
+		  //dpm($view);
+		  //202001 202002 202003 202004 202005 202006 202007 202008 202009 202010 202011 202012
+		  //202012 202101 202102 202103 202105 202105 202106 202107 202108 202109 202110 202111
+		  $mes = array('jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez');
+		  
+		  While ($i <= 12) {
+			  
+			  if ($comp_mes < 10) {
+				 $comp[$comp_ano .'0'. $comp_mes][0] = str_replace($comp_mes,$mes[($comp_mes-1)],$comp_mes).'/'. $comp_ano;  
+				 $comp[$comp_ano .'0'. $comp_mes][1] = ''; 
+
+			  }
+			  else {
+				 $comp[$comp_ano . $comp_mes][0] = str_replace($comp_mes,$mes[$comp_mes-1],$comp_mes).'/'.$comp_ano; 
+				 $comp[$comp_ano . $comp_mes][1] = ''; 
+			  }
+			  
+			  if ($comp_mes + 1 > 12) {
+				  $comp_ano = $comp_ano + 1;
+				  $comp_mes = 1;
+			  } else {
+				  $comp_mes = $comp_mes + 1;			  
+			  }
+			  $i++;
+		  }
+			 $i = 0;
+			 $armazena = array();
+			 foreach ($comp as $titulo) {
+			 switch ($i) {		 
+				 case 0:
+					 $view->field['field_val_rubrica_1']->options['label'] = $titulo[0];
+					 break;
+				 case 1:
+					$view->field['field_val_rubrica_2']->options['label'] = $titulo[0];
+					 break;			 
+				 case 2:
+					$view->field['field_val_rubrica_3']->options['label'] = 'Diferença'; //$titulo[0];
+					 break;			 
+			
+				 default:
+					break;		 
+				 }
+				 $i++;
+				}
+	
+				$nome = $view->result[0]->field_data_field_nome_da_pensionista_field_nome_da_pensionis;
+
+			$nome = "";
+			$nome_aux = $nome;	           
+			$comp_aux = $comp;
+			$n = 0;
+			$qtdocorrencias = 0; 
+
+			foreach($view->result as $r => &$result) {		 
+			
+				$nome = $result->field_field_nome_da_pensionista[0]['rendered']['#markup'];
+				
+				// limpa valores
+				$result->field_field_val_rubrica_1[0]['rendered']['#markup']    = " ";
+				$result->field_field_val_rubrica_2[0]['rendered']['#markup']    = " ";
+				$result->field_field_val_rubrica_3[0]['rendered']['#markup']    = " ";
+
+				 if ($nome != $nome_aux) {	
+					$qtdocorrencias = 1;			 
+					$nome_aux = $nome;
+					$result->nid = $qtdocorrencias;
+					//limpa 
+					$comp_aux = $comp;
+				 }
+				 else
+				 { 
+					$qtdocorrencias++;
+					$result->nid = $qtdocorrencias;
+				 } 
+			 // Obtem competencia e valor de result
+			 $comp_num = str_replace('-','',substr($result->field_data_field_dt_competencia_field_dt_competencia_value,0,7));
+			 //$comp_num = str_replace('-','',substr($result->field_field_dt_competencia[0]['rendered']['#markup'],0,7));
+			 $competencia = trim(strip_tags($result->field_field_dt_competencia[0]['rendered']['#markup']));
+			 
+			 $valor = $result->field_field_val_rubrica[0]['rendered']['#markup'];
+			 //$linha = $nome .' | '. $competencia.' | '. $comp_num.' | '. $valor;
+			 // Guarda competencia e valor lido em comp_aux
+			 $comp_aux[$comp_num][0] = $competencia;
+			 $comp_aux[$comp_num][1] = $valor;	  
+
+			 //Verifica a posição sequencial do item no array comp_aux
+			 $pos = 0;
+			 $pos = array_search($comp_num, array_keys($comp_aux));	
+			 
+			 // Preenche as comp e val auxiliares do result	
+			 $i = 0;
+			 $armazena = array();
+			 foreach ($comp_aux as $armazena) {		 
+				switch ($i) {		 
+					 case 0:
+						$result->field_field_val_rubrica_1[0]['rendered']['#markup']    = $armazena[1];
+						break;
+					 case 1:
+						$result->field_field_val_rubrica_2[0]['rendered']['#markup']    = $armazena[1];
+						break;
+					 case 2:
+						$valor1=$result->field_field_val_rubrica_1[0]['rendered']['#markup'];
+						$valor1 = str_replace(',','.',$valor1);
+						$valor2=$result->field_field_val_rubrica_2[0]['rendered']['#markup'];
+						$valor2= str_replace(',','.',$valor2);
+
+						//result->field_field_val_rubrica_3[0]['rendered']['#markup'] = $armazena[1];
+						$diferenca = (float)$valor2-(float)$valor1;
+						$diferenca = round($diferenca, 2);
+						$result->field_field_val_rubrica_3[0]['rendered']['#markup'] = $diferenca;
+						break;
+
+					 default:
+						break;		 
+				} 
+				$i++;
+			 }		
+			 
+			}
+			
+			// Inverte ordem do array mostrando primeiro a última ocorrência
+			// que é a que está completa.
+			$view->result = array_reverse($view->result);
+			
+			// Mantém a primeira ocorrência de cada filiado e apaga as demais
+			//dpm($view->result[0]);
+
+			//if (isset($view->result[0]->field_data_field_nome_da_pensionista_field_nome_da_pensionis)) {
+				$nome = $view->result[0]->field_data_field_nome_da_pensionista_field_nome_da_pensionis;	           	            
+			//}
+			$nome_aux = $nome;	           
+			$linha = '';
+			$qtd  = $view->result[0]->nid;
+			$ocorrencia = $qtd;
+				
+			// Carrega pagamentos_do_filiado com o resultado da view
+			foreach($view->result as $r => &$result) {	
+					
+				//if (isset($result->field_field_nome_da_pensionista[0]['rendered']['#markup'])) {
+				   //dpm($result);
+				$nome = $result->field_field_nome_da_pensionista[0]['rendered']['#markup'];		   
+				   //$nome = $result->field_data_field_nome_da_pensionista_field_nome_da_pensionis;
+				//}
+
+				if ($nome != $nome_aux) {	
+					$nome = $result->field_field_nome_da_pensionista[0]['rendered']['#markup'];	
+					//$nome = $result->field_data_field_nome_da_pensionista_field_nome_da_pensionis;
+					$nome_aux = $nome;	           
+					$linha = '';
+					$qtd  = $result->nid;
+					$ocorrencia = $qtd;
+				}
+				
+				if ($ocorrencia != $result->nid ) {
+					//$linha = 'apaga-> '.$ocorrencia. ' - '. $result->nid . ' - '.$result->field_field_matricula_pen_ser[0]['rendered']['#markup'].' - '.$result->field_field_nome_da_pensionista[0]['rendered']['#markup'];
+					//unset($view->result[$r]);
+					cf_geral_deleteFromArray($view->result, $result, FALSE);	
+				} 
+
+			}
+			$view->result = array_reverse($view->result);
+			//Volta Result para ordem original;
+			foreach($view->result as $r => &$result) {	
+				if ($result->field_field_val_rubrica_3[0]['rendered']['#markup'] == '0') {			 
+						//dpm('apaga: '. $result->field_field_val_rubrica_3[0]['rendered']['#markup']);
+						cf_geral_deleteFromArray($view->result, $result, FALSE);
+					} else {
+					 $valor_final = str_replace('.',',',$result->field_field_val_rubrica_3[0]['rendered']['#markup']);	
+					 $result->field_field_val_rubrica_3[0]['rendered']['#markup'] = $valor_final; 
+				}
+			}
+			$mes1 = 0.00;
+			$mes2 = 0.00;
+			$dif = 0.00;
+			$tot1 = 0.00;
+			$tot2 = 0.00;
+			$totdif = 0.00;
+			$coltot_result[] = array();
+            $tot = count($view->result);
+			foreach($view->result as $r => &$result) {	
+				$mes1 = str_replace(',','.',$result->field_field_val_rubrica_1[0]['rendered']['#markup']);	
+				$mes2 = str_replace(',','.',$result->field_field_val_rubrica_2[0]['rendered']['#markup']);	
+				$dif  = str_replace(',','.',$result->field_field_val_rubrica_3[0]['rendered']['#markup']);	
+				if (!empty($mes1)) {
+					$tot1= $tot1 + $mes1;
+				}
+				if (!empty($mes2)) {
+					$tot2= $tot2 + $mes2;
+				}
+				if (!empty($dif)) {
+					$totdif= $totdif + $dif;
+				}
+			}
+
+			//$view->result[$tot]->field_field_codigo_do_orgao[0]['rendered']['#markup'] 	= '';			
+			//$view->result[$tot]->field_field_nome_orgao_1[0]['rendered']['#markup'] 	= '';			
+			$view->result[$tot]->field_field_dt_competencia[0]['rendered']['#markup'] 	= '';			
+			$view->result[$tot]->field_field_val_rubrica[0]['rendered']['#markup'] 	= '';
+			
+			$view->result[$tot]->field_field_matricula_pen_ser[0]['rendered']['#markup'] 	= '';
+			$view->result[$tot]->field_field_nome_da_pensionista[0]['rendered']['#markup'] 	= 'TOTAL';
+			$view->result[$tot]->field_field_situacaosindical[0]['rendered']['#markup'] 	= '';
+			$view->result[$tot]->field_field_val_rubrica_1[0]['rendered']['#markup']=number_format($tot1, 2,',','.');
+			$view->result[$tot]->field_field_val_rubrica_2[0]['rendered']['#markup']=number_format($tot2, 2,',','.');
+			$view->result[$tot]->field_field_val_rubrica_3[0]['rendered']['#markup']=number_format($totdif, 2,',','.');
+		}
+	}
+
+	
+}

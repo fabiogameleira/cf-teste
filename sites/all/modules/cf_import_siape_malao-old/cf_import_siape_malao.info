@@ -1,0 +1,4 @@
+name = CF Import Siape Malao
+description = Substituído por cf_import_malao e cf_import_siape
+core = 7.x
+package = Other

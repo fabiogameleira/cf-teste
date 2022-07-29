@@ -1,0 +1,34 @@
+<?php
+/* Elimina a linha do result informado do array *//*
+* This function deletes the given element from a one-dimension array
+* Parameters: $array:    the array (in/out)
+*             $deleteIt: the value which we would like to delete
+*             $useOldKeys: if it is false then the function will re-index the array (from 0, 1, ...)
+*                          if it is true: the function will keep the old keys
+* Returns true, if this value was in the array, otherwise false (in this case the array is same as before)
+*/function cf_geral_deleteFromArray(&$array, $deleteIt, $useOldKeys) {
+    $tmpArray = array();
+    $found = FALSE;
+    foreach($array as $key => $value)
+    {
+        if($value !== $deleteIt)
+        {
+            if(FALSE === $useOldKeys)
+            {
+                $tmpArray[] = $value;
+            }
+            else
+            {
+                $tmpArray[$key] = $value;
+            }
+        }
+        else
+        {
+            $found = TRUE;
+        }
+    }
+  
+    $array = $tmpArray;
+  
+    return $found;
+}

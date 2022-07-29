@@ -1,0 +1,99 @@
+<?php
+/*
+function my_module_wsclient_webform_submission_presave($node, $submission) {
+	
+	$resposta = my_module_wsclient_cep($submission->data[1][0]);
+	
+	if (is_object($resposta)) {
+		$msg = 'Endereço   : ' . $resposta->return->end ;
+		$msg = $msg .'<br>'.'Complemento: ' . $resposta->return->complemento2;
+		$msg = $msg .'<br>'.'Bairro     : ' . $resposta->return->bairro;
+		$msg = $msg .'<br>'.'Cidade     : ' . $resposta->return->cidade;
+		$msg = $msg .'<br>'.'Estado     : ' . $resposta->return->uf;
+		$msg = $msg .'<br>'.'CEP        : ' . $resposta->return->cep;
+	    drupal_set_message($msg);
+	} 
+	else {
+		$msg = "CEP inválido";
+		drupal_set_message($msg);
+	}
+	drupal_goto('consulta-de-cep');
+	
+}*/
+
+function my_module_wsclient_cep($cep) {
+
+  //	  $form['#validate'][] = 'my_module_form_validate_assembleia'; 
+
+  $service = new WSClientServiceDescription();
+  $service->name = 'consultaCEP';
+  $service->label = 'consultaCEP';
+  $service->url = 'https://apps.correios.com.br/SigepMasterJPA/AtendeClienteService/AtendeCliente?wsdl';
+  $service->type = 'soap';
+  //dpm($form);
+  //$cep = ""; 
+  //dpm('--- cep---');
+  //dpm($form['field_cep_correios']['und'][0]['value']['#default_value']);
+
+  //if (empty($form['field_cep_correios']['und'][0]['value']['#default_value']) ) {
+   // $cep = "";	
+  //}
+  // else {
+	//$cep = $form['field_cep_correios']['und'][0]['value']['#default_value'];
+	  //}
+	  // For development purpose only
+	  $service->settings['options']['trace'] = TRUE;
+	  
+	  // Use this if you are using a proxy
+	  /*
+	  $service->settings['options']['proxy_host'] = '';
+	  $service->settings['options']['proxy_port'] = '';
+	  $service->settings['options']['proxy_login'] = '';
+	  $service->settings['options']['proxy_password'] = '';
+	  */
+	  
+	  // The Operation
+	  $operation = 'consultaCEP';
+	  
+	  // The Parameter
+	  $args = array(
+		'parameters' => array(
+		  'cep' => $cep,
+		)
+	  );
+
+	  try {
+		/* @see initializeMetaData() line 47 of wsclient_soap.module */
+		$service->endpoint()->initializeMetaData();
+		
+		try {
+		  $response = $service->__call($operation, $args);
+		}
+		catch (Exception $e) {
+		  watchdog('wsclient', $e->getMessage());
+		  $return = $e->getMessage();
+		}
+	  }
+	  
+	  catch (WSClientException $e) {
+		watchdog('wsclient', $e->__toString());
+		$return = $e->__toString();
+	  }
+	  
+	  // Contains the web service response
+	  
+	  if (!empty($response)) {
+		//dpm('$response (ok)->');
+		//dpm($response);
+		//dpm('Endereço   : ' . $response->return->end);
+		//dpm('Complemento: ' . $response->return->complemento2);
+		//dpm('Bairro     : ' . $response->return->bairro);
+		//dpm('Cidade     : ' . $response->return->cidade);
+		//dpm('Estado     : ' . $response->return->uf);	
+		//dpm('CEP        : ' . $response->return->cep);	
+        return($response);
+	  } else 
+	  { // Erro
+		return($return); 
+	  }
+}
