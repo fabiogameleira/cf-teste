@@ -621,13 +621,14 @@ function cf_consigsiape_node_presave($node) {
 		// Após gravar um retorno de contrato de inclusão
 		// verifica se existe algum código de retorno = E009
 		// E009 = CONSIGNATARIA NAO AUTORIZADA PELO BENEFICIARIO
+		// B048 = ATUALIZ.NAO PERMITIDA
 		// Existindo, criar um novo comando de inclusão com o mesmo
 		// número de contrato para este filiado.
 			
 		$codigo = trim($node->field_codigo_retorno['und'][0]['value']);
         $regra = '';
 
-		if ($codigo == "E009") {
+		if (($codigo == "E009") or ($codigo == "B048")) {
 			$siape    			= $node->field_matricula_siape['und'][0]['value'];
 			$siape_benef_pensao = $node->field_matricula_beneficiario['und'][0]['value'];
 			
@@ -684,13 +685,14 @@ function cf_consigsiape_node_presave($node) {
 						// envio no próximo arquivo CONSIGSIAPE.
 						cf_consigsiape_grava_comando_de_consignacao($mesano,$siape,$siape_benef_pensao,$contrato,$comando,$cpf,$nome);
 						
-						/* ENVIA E-MAIL PARA OPERADOR INFORMANDO SOBRE A PENDENCIA DE AUTORIZACAO */
+						if ($codigo == "E009") {
+							/* ENVIA E-MAIL PARA OPERADOR INFORMANDO SOBRE A PENDENCIA DE AUTORIZACAO */
 							$tipoconta='Autorização no SIGEPE/SIAPE';
 							$tipoconta_fim=taxonomy_get_term_by_name($tipoconta);
 							$termo = reset($tipoconta_fim);
 							$termoid = $termo->tid ;
 							cf_consigsiape_email_pendencencia_autorizacao($termoid,$nome,$cpf,$siape,$celular,$filiacao, $email);
-
+                        }
 	                } 	    
 				}
             } 
