@@ -1,19 +1,6 @@
-
-# Ignore testing related files
-/sites/simpletest
-
 # Ignore configuration files that may contain sensitive information.
 sites/*/settings*.php
 
 # Ignore paths that contain user-generated content.
 sites/*/files
 sites/*/private
-sites/appdev.dd/*
-appdev_private
-appdev_tmp
-Arquivos-siape
-atualiza
-ajustes
-copia
-*.bat
-

@@ -1130,4 +1130,7 @@ a.consigsiape:focus
     width: 500px !important;
 }
 
-
+.trocar-papel .control-label {
+	font-weight: 900;
+    color: #444444;
+}
